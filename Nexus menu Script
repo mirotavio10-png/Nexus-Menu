@@ -1,698 +1,592 @@
 
--- NEXUS UI | PLAYER, SPECTATOR & WORLD TOOLS
--- Single LocalScript
--- Place in StarterPlayer > StarterPlayerScripts
+--[[
+    NEXUS UI | PREMIUM EDITION
+    LocalScript: StarterPlayer > StarterPlayerScripts
+
+    Features:
+    - PLAYER, SPECTATOR and WORLD tabs
+    - WalkSpeed +/- 10
+    - JumpPower +/- 5
+    - Fly (F), Noclip (N)
+    - Player highlights and distant name tags
+    - Spectator and teleport controls
+    - Three saved positions
+    - Rejoin
+    - Hide/show with LeftAlt
+
+]]
 
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 
-local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local flySpeed = 65
-local flying = false
-local noclip = false
+--==================================================
+-- SETTINGS
+--==================================================
+
+local WALK_DEFAULT = 16
+local JUMP_DEFAULT = 50
+local flySpeeds = {65, 100, 150}
+
+local walkSpeed = WALK_DEFAULT
+local jumpPower = JUMP_DEFAULT
+local flySpeedIndex = 1
+
+local flyEnabled = false
+local noclipEnabled = false
+local chamsEnabled = false
+local namesEnabled = false
 local spectating = false
-local selectedPlayer = nil
-local oldCameraSubject = nil
 
-local walkSpeed = 16
-local jumpPower = 50
+local selectedPlayer
+local savedPositions = {nil, nil, nil}
+
+local highlights = {}
+local nameTags = {}
+local savedCollisions = {}
 
 local flyConnection
-local clipConnection
-local velocity
-local gyro
-local oldCollisions = {}
-local savedPoints = {nil, nil, nil}
-
-local flyButton
-local noclipButton
-local speedButton
-local spectateButton
-local walkSpeedLabel
-local jumpPowerLabel
-local selectedLabel
-local playerList
+local noclipConnection
+local flyBV
+local flyBG
 
 local C = {
-    Background = Color3.fromRGB(12, 14, 21),
-    Panel = Color3.fromRGB(20, 23, 34),
-    Surface = Color3.fromRGB(29, 33, 48),
-    SurfaceHover = Color3.fromRGB(39, 45, 64),
-    Accent = Color3.fromRGB(108, 125, 255),
-    AccentDark = Color3.fromRGB(69, 83, 190),
-    Text = Color3.fromRGB(240, 243, 255),
-    Muted = Color3.fromRGB(147, 155, 180),
-    Green = Color3.fromRGB(100, 220, 160),
-    Red = Color3.fromRGB(255, 105, 120),
-    Border = Color3.fromRGB(49, 55, 77)
+    Background = Color3.fromRGB(12, 13, 20),
+    Header = Color3.fromRGB(20, 21, 33),
+    Panel = Color3.fromRGB(23, 25, 39),
+    Element = Color3.fromRGB(34, 37, 55),
+    Hover = Color3.fromRGB(47, 49, 72),
+    Accent = Color3.fromRGB(139, 92, 246),
+    AccentLight = Color3.fromRGB(196, 181, 253),
+    Text = Color3.fromRGB(245, 245, 255),
+    Muted = Color3.fromRGB(157, 162, 184),
+    Green = Color3.fromRGB(74, 222, 128),
+    Red = Color3.fromRGB(248, 113, 113),
 }
 
--- GUI
+--==================================================
+-- CLEANUP
+--==================================================
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "NexusModernPanel"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.Parent = player:WaitForChild("PlayerGui")
+local previous = PlayerGui:FindFirstChild("NexusUI")
+if previous then
+    previous:Destroy()
+end
 
-local panel = Instance.new("Frame")
-panel.Name = "MainPanel"
-panel.Size = UDim2.fromOffset(390, 590)
-panel.Position = UDim2.new(0, 28, 0.5, -295)
-panel.BackgroundColor3 = C.Background
-panel.BorderSizePixel = 0
-panel.Active = true
-panel.ClipsDescendants = true
-panel.Parent = gui
+--==================================================
+-- UI HELPERS
+--==================================================
 
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 16)
+local function create(className, props, parent)
+    local object = Instance.new(className)
 
-local panelStroke = Instance.new("UIStroke")
-panelStroke.Color = C.Border
-panelStroke.Thickness = 1
-panelStroke.Parent = panel
-
--- HEADER
-
-local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 82)
-header.BackgroundColor3 = C.Panel
-header.BorderSizePixel = 0
-header.Parent = panel
-
-Instance.new("UICorner", header).CornerRadius = UDim.new(0, 16)
-
-local headerCover = Instance.new("Frame")
-headerCover.Size = UDim2.new(1, 0, 0, 16)
-headerCover.Position = UDim2.new(0, 0, 1, -16)
-headerCover.BackgroundColor3 = C.Panel
-headerCover.BorderSizePixel = 0
-headerCover.Parent = header
-
-local logo = Instance.new("Frame")
-logo.Position = UDim2.fromOffset(18, 18)
-logo.Size = UDim2.fromOffset(42, 42)
-logo.BackgroundColor3 = C.AccentDark
-logo.BorderSizePixel = 0
-logo.Parent = header
-
-Instance.new("UICorner", logo).CornerRadius = UDim.new(0, 12)
-
-local logoText = Instance.new("TextLabel")
-logoText.Size = UDim2.fromScale(1, 1)
-logoText.BackgroundTransparency = 1
-logoText.Text = "N"
-logoText.TextColor3 = C.Text
-logoText.Font = Enum.Font.GothamBlack
-logoText.TextSize = 25
-logoText.Parent = logo
-
-local title = Instance.new("TextLabel")
-title.Position = UDim2.fromOffset(72, 17)
-title.Size = UDim2.new(1, -140, 0, 28)
-title.BackgroundTransparency = 1
-title.Text = "NEXUS"
-title.TextColor3 = C.Text
-title.TextSize = 21
-title.Font = Enum.Font.GothamBold
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = header
-
-local subtitle = Instance.new("TextLabel")
-subtitle.Position = UDim2.fromOffset(73, 44)
-subtitle.Size = UDim2.new(1, -140, 0, 20)
-subtitle.BackgroundTransparency = 1
-subtitle.Text = "PLAYER & WORLD TOOLS"
-subtitle.TextColor3 = C.Muted
-subtitle.TextSize = 10
-subtitle.Font = Enum.Font.GothamMedium
-subtitle.TextXAlignment = Enum.TextXAlignment.Left
-subtitle.Parent = header
-
-local hideButton = Instance.new("TextButton")
-hideButton.Position = UDim2.new(1, -48, 0, 24)
-hideButton.Size = UDim2.fromOffset(30, 30)
-hideButton.BackgroundColor3 = C.Surface
-hideButton.Text = "—"
-hideButton.TextColor3 = C.Text
-hideButton.TextSize = 18
-hideButton.Font = Enum.Font.GothamBold
-hideButton.BorderSizePixel = 0
-hideButton.Parent = header
-
-Instance.new("UICorner", hideButton).CornerRadius = UDim.new(0, 8)
-
--- DRAGGING
-
-local dragging = false
-local dragStart
-local startPosition
-
-header.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPosition = panel.Position
+    for property, value in pairs(props or {}) do
+        object[property] = value
     end
-end)
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
+    object.Parent = parent
+    return object
+end
 
-        panel.Position = UDim2.new(
-            startPosition.X.Scale,
-            startPosition.X.Offset + delta.X,
-            startPosition.Y.Scale,
-            startPosition.Y.Offset + delta.Y
-        )
-    end
-end)
+local function round(object, radius)
+    create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 8)
+    }, object)
+end
 
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
+local function stroke(object, color, transparency, thickness)
+    return create("UIStroke", {
+        Color = color or C.Accent,
+        Transparency = transparency or 0.5,
+        Thickness = thickness or 1
+    }, object)
+end
 
--- THREE TABS
+local function makeLabel(parent, text, position, size, textSize, color)
+    return create("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = position,
+        Size = size,
+        Text = text,
+        TextColor3 = color or C.Text,
+        TextSize = textSize or 12,
+        Font = Enum.Font.GothamMedium,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = true
+    }, parent)
+end
 
-local tabBar = Instance.new("Frame")
-tabBar.Position = UDim2.fromOffset(14, 94)
-tabBar.Size = UDim2.new(1, -28, 0, 44)
-tabBar.BackgroundColor3 = C.Panel
-tabBar.BorderSizePixel = 0
-tabBar.Parent = panel
+local function makeButton(parent, text, position, size, callback)
+    local button = create("TextButton", {
+        Position = position,
+        Size = size,
+        BackgroundColor3 = C.Element,
+        BorderSizePixel = 0,
+        Text = text,
+        TextColor3 = C.Text,
+        TextSize = 11,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false
+    }, parent)
 
-Instance.new("UICorner", tabBar).CornerRadius = UDim.new(0, 10)
+    round(button, 7)
 
-local function createTab(text, index)
-    local button = Instance.new("TextButton")
-    button.Position = UDim2.new((index - 1) / 3, 4, 0, 4)
-    button.Size = UDim2.new(1 / 3, -6, 1, -8)
-    button.BackgroundColor3 = index == 1 and C.Accent or C.Panel
-    button.Text = text
-    button.TextColor3 = index == 1 and C.Text or C.Muted
-    button.TextSize = 10
-    button.Font = Enum.Font.GothamBold
-    button.BorderSizePixel = 0
-    button.Parent = tabBar
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = C.Hover
+    end)
 
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = C.Element
+    end)
+
+    button.Activated:Connect(function()
+        if callback then
+            callback()
+        end
+    end)
+
     return button
 end
 
-local playerTab = createTab("PLAYER", 1)
-local spectatorTab = createTab("SPECTATOR", 2)
-local worldTab = createTab("WORLD", 3)
+local function makeSection(parent, text, y)
+    local label = makeLabel(
+        parent,
+        text,
+        UDim2.fromOffset(10, y),
+        UDim2.new(1, -20, 0, 21),
+        11,
+        C.AccentLight
+    )
 
--- CONTENT PAGES
-
-local function createPage()
-    local page = Instance.new("ScrollingFrame")
-    page.Position = UDim2.fromOffset(14, 150)
-    page.Size = UDim2.new(1, -28, 1, -164)
-    page.BackgroundTransparency = 1
-    page.BorderSizePixel = 0
-    page.ScrollBarThickness = 3
-    page.ScrollBarImageColor3 = C.Accent
-    page.CanvasSize = UDim2.new()
-    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    page.Visible = false
-    page.Parent = panel
-
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 10)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = page
-
-    local padding = Instance.new("UIPadding")
-    padding.PaddingBottom = UDim.new(0, 12)
-    padding.Parent = page
-
-    return page
-end
-
-local playerPage = createPage()
-local spectatorPage = createPage()
-local worldPage = createPage()
-
--- UI HELPERS
-
-local function createSection(parent, text, order)
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -4, 0, 24)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = C.Muted
-    label.TextSize = 11
     label.Font = Enum.Font.GothamBold
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.LayoutOrder = order
-    label.Parent = parent
     return label
 end
 
-local function createButton(parent, text, order, callback, accent)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -4, 0, 38)
-    button.BackgroundColor3 = accent and C.AccentDark or C.Surface
-    button.TextColor3 = C.Text
-    button.Text = text
-    button.TextSize = 12
-    button.Font = Enum.Font.GothamMedium
-    button.BorderSizePixel = 0
-    button.LayoutOrder = order
-    button.Parent = parent
+local function makeToggle(parent, text, y, callback)
+    local button = create("TextButton", {
+        Position = UDim2.fromOffset(10, y),
+        Size = UDim2.new(1, -20, 0, 32),
+        BackgroundColor3 = C.Element,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false
+    }, parent)
 
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 9)
+    round(button, 7)
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = accent and C.Accent or C.Border
-    stroke.Transparency = 0.65
-    stroke.Thickness = 1
-    stroke.Parent = button
+    local title = makeLabel(
+        button,
+        text,
+        UDim2.fromOffset(10, 0),
+        UDim2.new(1, -85, 1, 0),
+        11
+    )
 
-    button.Activated:Connect(callback)
-    return button
-end
+    local stateLabel = create("TextLabel", {
+        Position = UDim2.new(1, -65, 0, 5),
+        Size = UDim2.fromOffset(54, 22),
+        BackgroundColor3 = C.Background,
+        BorderSizePixel = 0,
+        Text = "OFF",
+        TextColor3 = C.Muted,
+        TextSize = 10,
+        Font = Enum.Font.GothamBold
+    }, button)
 
-local function createRow(parent, order)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, -4, 0, 38)
-    row.BackgroundTransparency = 1
-    row.LayoutOrder = order
-    row.Parent = parent
+    round(stateLabel, 6)
 
-    local layout = Instance.new("UIListLayout")
-    layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.Padding = UDim.new(0, 8)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Parent = row
+    local state = false
 
-    return row
-end
+    local function setState(value)
+        state = value
+        stateLabel.Text = state and "ON" or "OFF"
+        stateLabel.TextColor3 = state and C.Green or C.Muted
+        stateLabel.BackgroundColor3 = state
+            and Color3.fromRGB(24, 56, 43)
+            or C.Background
 
-local function createRowButton(parent, text, callback, accent)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0.5, -4, 1, 0)
-    button.BackgroundColor3 = accent and C.AccentDark or C.Surface
-    button.TextColor3 = C.Text
-    button.Text = text
-    button.TextSize = 10
-    button.Font = Enum.Font.GothamMedium
-    button.BorderSizePixel = 0
-    button.Parent = parent
-
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 9)
-    button.Activated:Connect(callback)
-
-    return button
-end
-
-local function getCharacter()
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-    return character, root, humanoid
-end
-
--- WALK SPEED AND JUMP POWER
-
-local function applyMovementStats()
-    local _, _, humanoid = getCharacter()
-    if not humanoid then return end
-
-    humanoid.WalkSpeed = walkSpeed
-    humanoid.UseJumpPower = true
-    humanoid.JumpPower = jumpPower
-end
-
-local function createStatControl(parent, order, titleText, getValue, setValue, minimum, maximum, step)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, -4, 0, 54)
-    row.BackgroundColor3 = C.Panel
-    row.BorderSizePixel = 0
-    row.LayoutOrder = order
-    row.Parent = parent
-
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 9)
-
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Position = UDim2.fromOffset(12, 5)
-    nameLabel.Size = UDim2.new(1, -120, 0, 18)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = titleText
-    nameLabel.TextColor3 = C.Muted
-    nameLabel.TextSize = 11
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.Parent = row
-
-    local valueLabel = Instance.new("TextLabel")
-    valueLabel.Position = UDim2.fromOffset(12, 24)
-    valueLabel.Size = UDim2.new(1, -120, 0, 22)
-    valueLabel.BackgroundTransparency = 1
-    valueLabel.TextColor3 = C.Text
-    valueLabel.TextSize = 16
-    valueLabel.Font = Enum.Font.GothamBold
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Left
-    valueLabel.Parent = row
-
-    local minusButton = Instance.new("TextButton")
-    minusButton.Position = UDim2.new(1, -94, 0, 11)
-    minusButton.Size = UDim2.fromOffset(34, 32)
-    minusButton.BackgroundColor3 = C.Surface
-    minusButton.Text = "−"
-    minusButton.TextColor3 = C.Text
-    minusButton.TextSize = 20
-    minusButton.Font = Enum.Font.GothamBold
-    minusButton.BorderSizePixel = 0
-    minusButton.Parent = row
-
-    Instance.new("UICorner", minusButton).CornerRadius = UDim.new(0, 8)
-
-    local plusButton = Instance.new("TextButton")
-    plusButton.Position = UDim2.new(1, -50, 0, 11)
-    plusButton.Size = UDim2.fromOffset(34, 32)
-    plusButton.BackgroundColor3 = C.AccentDark
-    plusButton.Text = "+"
-    plusButton.TextColor3 = C.Text
-    plusButton.TextSize = 20
-    plusButton.Font = Enum.Font.GothamBold
-    plusButton.BorderSizePixel = 0
-    plusButton.Parent = row
-
-    Instance.new("UICorner", plusButton).CornerRadius = UDim.new(0, 8)
-
-    local function updateLabel()
-        valueLabel.Text = tostring(getValue())
+        callback(state)
     end
 
-    minusButton.Activated:Connect(function()
-        setValue(math.max(minimum, getValue() - step))
-        applyMovementStats()
-        updateLabel()
+    button.Activated:Connect(function()
+        setState(not state)
     end)
 
-    plusButton.Activated:Connect(function()
-        setValue(math.min(maximum, getValue() + step))
-        applyMovementStats()
-        updateLabel()
+    return function()
+        return state
+    end, setState
+end
+
+--==================================================
+-- MAIN WINDOW
+--==================================================
+
+local gui = create("ScreenGui", {
+    Name = "NexusUI",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+}, PlayerGui)
+
+local main = create("Frame", {
+    Name = "Main",
+    Size = UDim2.fromOffset(450, 340),
+    Position = UDim2.new(0.5, -225, 0.5, -170),
+    BackgroundColor3 = C.Background,
+    BorderSizePixel = 0,
+    ClipsDescendants = true
+}, gui)
+
+round(main, 12)
+stroke(main, C.Accent, 0.25, 1.3)
+
+local header = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 48),
+    BackgroundColor3 = C.Header,
+    BorderSizePixel = 0
+}, main)
+
+local accentBar = create("Frame", {
+    Size = UDim2.new(0, 4, 1, -12),
+    Position = UDim2.fromOffset(7, 6),
+    BackgroundColor3 = C.Accent,
+    BorderSizePixel = 0
+}, header)
+round(accentBar, 3)
+
+local title = makeLabel(
+    header,
+    "NEXUS MENU",
+    UDim2.fromOffset(18, 4),
+    UDim2.fromOffset(160, 24),
+    17
+)
+title.Font = Enum.Font.GothamBold
+
+makeLabel(
+    header,
+    "PLAYER  /  WORLD TOOLS",
+    UDim2.fromOffset(19, 27),
+    UDim2.fromOffset(200, 14),
+    8,
+    C.Muted
+)
+
+local altHint = makeLabel(
+    header,
+    "LEFT ALT: SHOW / HIDE",
+    UDim2.new(1, -190, 0, 0),
+    UDim2.fromOffset(150, 48),
+    8,
+    C.Muted
+)
+
+altHint.TextXAlignment = Enum.TextXAlignment.Right
+
+local closeButton = makeButton(
+    header,
+    "×",
+    UDim2.new(1, -36, 0, 9),
+    UDim2.fromOffset(26, 27),
+    function()
+        main.Visible = false
+    end
+)
+closeButton.TextSize = 18
+
+-- Dragging
+do
+    local dragging = false
+    local dragStart
+    local startPosition
+
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPosition = main.Position
+        end
     end)
 
-    updateLabel()
-    return updateLabel
-end
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
 
--- MOVEMENT HELPERS
-
-local function stopFly()
-    flying = false
-
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-
-    if velocity then
-        velocity:Destroy()
-        velocity = nil
-    end
-
-    if gyro then
-        gyro:Destroy()
-        gyro = nil
-    end
-
-    if flyButton then
-        flyButton.Text = "FLY  ·  OFF  [F]"
-    end
-end
-
-local function toggleFly()
-    if flying then
-        stopFly()
-        return
-    end
-
-    local character, root, humanoid = getCharacter()
-    if not root or not humanoid or humanoid.Health <= 0 then return end
-
-    flying = true
-    flyButton.Text = "FLY  ·  ON  [F]"
-
-    velocity = Instance.new("BodyVelocity")
-    velocity.Name = "NexusFlyVelocity"
-    velocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    velocity.Velocity = Vector3.zero
-    velocity.Parent = root
-
-    gyro = Instance.new("BodyGyro")
-    gyro.Name = "NexusFlyGyro"
-    gyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    gyro.P = 9000
-    gyro.CFrame = root.CFrame
-    gyro.Parent = root
-
-    flyConnection = RunService.RenderStepped:Connect(function()
-        if not root.Parent or not character.Parent then
-            stopFly()
-            return
+            main.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
         end
-
-        local cf = camera.CFrame
-        local move = Vector3.zero
-
-        if UIS:IsKeyDown(Enum.KeyCode.W) then move += cf.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then move -= cf.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then move -= cf.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then move += cf.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.yAxis end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.yAxis end
-
-        velocity.Velocity = move.Magnitude > 0 and move.Unit * flySpeed or Vector3.zero
-        gyro.CFrame = CFrame.lookAt(root.Position, root.Position + cf.LookVector)
     end)
-end
 
-local function restoreCollisions()
-    for part, original in pairs(oldCollisions) do
-        if part and part.Parent then
-            part.CanCollide = original
-        end
-    end
-
-    table.clear(oldCollisions)
-end
-
-local function toggleNoclip()
-    if noclip then
-        noclip = false
-
-        if clipConnection then
-            clipConnection:Disconnect()
-            clipConnection = nil
-        end
-
-        restoreCollisions()
-        noclipButton.Text = "NOCLIP  ·  OFF  [N]"
-        return
-    end
-
-    noclip = true
-    noclipButton.Text = "NOCLIP  ·  ON  [N]"
-
-    clipConnection = RunService.Stepped:Connect(function()
-        local character = player.Character
-        if not character then return end
-
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if oldCollisions[part] == nil then
-                    oldCollisions[part] = part.CanCollide
-                end
-
-                part.CanCollide = false
-            end
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
         end
     end)
 end
 
-local function resetMovement()
-    stopFly()
+--==================================================
+-- TABS
+--==================================================
 
-    if noclip then
-        noclip = false
+local tabBar = create("Frame", {
+    Position = UDim2.fromOffset(9, 55),
+    Size = UDim2.new(1, -18, 0, 31),
+    BackgroundTransparency = 1
+}, main)
 
-        if clipConnection then
-            clipConnection:Disconnect()
-            clipConnection = nil
-        end
+local content = create("Frame", {
+    Position = UDim2.fromOffset(9, 93),
+    Size = UDim2.new(1, -18, 1, -102),
+    BackgroundTransparency = 1
+}, main)
 
-        restoreCollisions()
-    end
+local tabNames = {"PLAYER", "SPECTATOR", "WORLD"}
+local tabButtons = {}
+local pages = {}
 
-    noclipButton.Text = "NOCLIP  ·  OFF  [N]"
+for index, tabName in ipairs(tabNames) do
+    local button = makeButton(
+        tabBar,
+        tabName,
+        UDim2.new((index - 1) / 3, 2, 0, 0),
+        UDim2.new(1 / 3, -4, 1, 0),
+        nil
+    )
 
-    walkSpeed = 16
-    jumpPower = 50
-    applyMovementStats()
+    tabButtons[tabName] = button
 
-    if walkSpeedLabel then walkSpeedLabel() end
-    if jumpPowerLabel then jumpPowerLabel() end
+    local page = create("ScrollingFrame", {
+        Name = tabName .. "Page",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = C.Panel,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = C.Accent,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(),
+        Visible = false
+    }, content)
+
+    round(page, 9)
+
+    create("UIPadding", {
+        PaddingBottom = UDim.new(0, 10)
+    }, page)
+
+    pages[tabName] = page
 end
 
+local function showTab(name)
+    for tabName, page in pairs(pages) do
+        page.Visible = tabName == name
+        tabButtons[tabName].BackgroundColor3 =
+            tabName == name and C.Accent or C.Element
+    end
+end
+
+for _, name in ipairs(tabNames) do
+    tabButtons[name].Activated:Connect(function()
+        showTab(name)
+    end)
+end
+
+showTab("PLAYER")
+
+local playerPage = pages.PLAYER
+local spectatorPage = pages.SPECTATOR
+local worldPage = pages.WORLD
+
+--==================================================
+-- CHARACTER HELPERS
+--==================================================
+
+local function getCharacter(plr)
+    return plr and plr.Character
+end
+
+local function getHumanoid(plr)
+    local character = getCharacter(plr)
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot(plr)
+    local character = getCharacter(plr)
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function myHumanoid()
+    return getHumanoid(LocalPlayer)
+end
+
+local function myRoot()
+    return getRoot(LocalPlayer)
+end
+
+--==================================================
 -- PLAYER PAGE
+--==================================================
 
-createSection(playerPage, "MOVEMENT", 1)
+makeSection(playerPage, "MOVEMENT", 8)
 
-local movementRow = createRow(playerPage, 2)
-flyButton = createRowButton(movementRow, "FLY  ·  OFF  [F]", toggleFly, true)
-noclipButton = createRowButton(movementRow, "NOCLIP  ·  OFF  [N]", toggleNoclip)
-
-local speedRow = createRow(playerPage, 3)
-
-speedButton = createRowButton(speedRow, "FLY SPEED  ·  65", function()
-    if flySpeed == 65 then
-        flySpeed = 100
-    elseif flySpeed == 100 then
-        flySpeed = 150
-    else
-        flySpeed = 65
-    end
-
-    speedButton.Text = "FLY SPEED  ·  " .. flySpeed
-end, true)
-
-createRowButton(speedRow, "RESET MOVEMENT", resetMovement)
-
-createSection(playerPage, "CHARACTER STATS", 4)
-
-walkSpeedLabel = createStatControl(
+local walkLabel = makeLabel(
     playerPage,
-    5,
-    "WALK SPEED",
-    function() return walkSpeed end,
-    function(value) walkSpeed = value end,
-    0,
-    100,
-    2
+    "WalkSpeed: 16",
+    UDim2.fromOffset(10, 33),
+    UDim2.fromOffset(140, 28),
+    11
 )
 
-jumpPowerLabel = createStatControl(
-    playerPage,
-    6,
-    "JUMP POWER",
-    function() return jumpPower end,
-    function(value) jumpPower = value end,
-    0,
-    200,
-    5
-)
-
-createButton(playerPage, "RESET WALK SPEED & JUMP", 7, function()
-    walkSpeed = 16
-    jumpPower = 50
-    applyMovementStats()
-    walkSpeedLabel()
-    jumpPowerLabel()
-end, true)
-
-createSection(playerPage, "CONTROLS", 8)
-
-local controlsInfo = Instance.new("TextLabel")
-controlsInfo.Size = UDim2.new(1, -4, 0, 46)
-controlsInfo.BackgroundColor3 = C.Panel
-controlsInfo.Text = "  F = Toggle Fly     N = Toggle Noclip\n  Left Alt = Hide / Show Menu"
-controlsInfo.TextColor3 = C.Muted
-controlsInfo.TextSize = 11
-controlsInfo.Font = Enum.Font.Gotham
-controlsInfo.TextWrapped = true
-controlsInfo.TextXAlignment = Enum.TextXAlignment.Left
-controlsInfo.LayoutOrder = 9
-controlsInfo.Parent = playerPage
-
-Instance.new("UICorner", controlsInfo).CornerRadius = UDim.new(0, 8)
-
--- SPECTATOR PAGE
-
-createSection(spectatorPage, "SPECTATOR MODE", 1)
-
-local spectatorInfo = Instance.new("TextLabel")
-spectatorInfo.Size = UDim2.new(1, -4, 0, 42)
-spectatorInfo.BackgroundColor3 = C.Panel
-spectatorInfo.Text = "  Select a player below, then start spectating."
-spectatorInfo.TextColor3 = C.Muted
-spectatorInfo.TextSize = 11
-spectatorInfo.Font = Enum.Font.Gotham
-spectatorInfo.TextWrapped = true
-spectatorInfo.LayoutOrder = 2
-spectatorInfo.Parent = spectatorPage
-
-Instance.new("UICorner", spectatorInfo).CornerRadius = UDim.new(0, 8)
-
-selectedLabel = Instance.new("TextLabel")
-selectedLabel.Size = UDim2.new(1, -4, 0, 30)
-selectedLabel.BackgroundColor3 = C.Panel
-selectedLabel.Text = "  No player selected"
-selectedLabel.TextColor3 = C.Muted
-selectedLabel.TextSize = 12
-selectedLabel.Font = Enum.Font.GothamMedium
-selectedLabel.TextXAlignment = Enum.TextXAlignment.Left
-selectedLabel.LayoutOrder = 3
-selectedLabel.Parent = spectatorPage
-
-Instance.new("UICorner", selectedLabel).CornerRadius = UDim.new(0, 8)
-
-playerList = Instance.new("ScrollingFrame")
-playerList.Size = UDim2.new(1, -4, 0, 190)
-playerList.BackgroundColor3 = C.Panel
-playerList.BorderSizePixel = 0
-playerList.ScrollBarThickness = 3
-playerList.ScrollBarImageColor3 = C.Accent
-playerList.CanvasSize = UDim2.new()
-playerList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-playerList.LayoutOrder = 4
-playerList.Parent = spectatorPage
-
-Instance.new("UICorner", playerList).CornerRadius = UDim.new(0, 9)
-
-local playerListLayout = Instance.new("UIListLayout")
-playerListLayout.Padding = UDim.new(0, 4)
-playerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-playerListLayout.Parent = playerList
-
-local playerListPadding = Instance.new("UIPadding")
-playerListPadding.PaddingTop = UDim.new(0, 5)
-playerListPadding.PaddingLeft = UDim.new(0, 5)
-playerListPadding.PaddingRight = UDim.new(0, 5)
-playerListPadding.PaddingBottom = UDim.new(0, 5)
-playerListPadding.Parent = playerList
-
-local function stopSpectating()
-    spectating = false
-
-    local _, _, humanoid = getCharacter()
-    camera = workspace.CurrentCamera
-
-    if humanoid then
-        camera.CameraSubject = humanoid
-    elseif oldCameraSubject then
-        camera.CameraSubject = oldCameraSubject
-    end
-
-    oldCameraSubject = nil
-
-    if spectateButton then
-        spectateButton.Text = "START SPECTATING"
-    end
+local function applyWalkSpeed()
+    local hum = myHumanoid()
+    if hum then hum.WalkSpeed = walkSpeed end
+    walkLabel.Text = "WalkSpeed: " .. walkSpeed
 end
+
+makeButton(
+    playerPage, "−10",
+    UDim2.new(1, -143, 0, 32),
+    UDim2.fromOffset(58, 28),
+    function()
+        walkSpeed = math.max(0, walkSpeed - 10)
+        applyWalkSpeed()
+    end
+)
+
+makeButton(
+    playerPage, "+10",
+    UDim2.new(1, -78, 0, 32),
+    UDim2.fromOffset(68, 28),
+    function()
+        walkSpeed = math.min(100, walkSpeed + 10)
+        applyWalkSpeed()
+    end
+)
+
+local jumpLabel = makeLabel(
+    playerPage,
+    "JumpPower: 50",
+    UDim2.fromOffset(10, 67),
+    UDim2.fromOffset(140, 28),
+    11
+)
+
+local function applyJumpPower()
+    local hum = myHumanoid()
+    if hum then
+        hum.UseJumpPower = true
+        hum.JumpPower = jumpPower
+    end
+    jumpLabel.Text = "JumpPower: " .. jumpPower
+end
+
+makeButton(
+    playerPage, "−5",
+    UDim2.new(1, -143, 0, 66),
+    UDim2.fromOffset(58, 28),
+    function()
+        jumpPower = math.max(0, jumpPower - 5)
+        applyJumpPower()
+    end
+)
+
+makeButton(
+    playerPage, "+5",
+    UDim2.new(1, -78, 0, 66),
+    UDim2.fromOffset(68, 28),
+    function()
+        jumpPower = math.min(200, jumpPower + 5)
+        applyJumpPower()
+    end
+)
+
+makeButton(
+    playerPage, "RESET MOVEMENT",
+    UDim2.fromOffset(10, 100),
+    UDim2.new(1, -20, 0, 28),
+    function()
+        walkSpeed = WALK_DEFAULT
+        jumpPower = JUMP_DEFAULT
+        applyWalkSpeed()
+        applyJumpPower()
+    end
+)
+
+makeSection(playerPage, "FLIGHT & COLLISION", 137)
+
+local setFly
+local getFly
+getFly, setFly = makeToggle(playerPage, "Fly  ·  F", 160, function(enabled)
+    flyEnabled = enabled
+end)
+
+local flySpeedLabel = makeLabel(
+    playerPage,
+    "Fly speed: 65",
+    UDim2.fromOffset(10, 196),
+    UDim2.fromOffset(140, 26),
+    11
+)
+
+makeButton(
+    playerPage, "CYCLE SPEED",
+    UDim2.new(1, -143, 0, 194),
+    UDim2.fromOffset(133, 27),
+    function()
+        flySpeedIndex = flySpeedIndex % #flySpeeds + 1
+        flySpeedLabel.Text = "Fly speed: " .. flySpeeds[flySpeedIndex]
+    end
+)
+
+local getNoclip
+local setNoclip
+getNoclip, setNoclip = makeToggle(playerPage, "Noclip  ·  N", 228, function(enabled)
+    noclipEnabled = enabled
+end)
+
+--==================================================
+-- SPECTATOR PAGE
+--==================================================
+
+makeSection(spectatorPage, "PLAYER SELECTION", 8)
+
+local selectedLabel = makeLabel(
+    spectatorPage,
+    "Selected: none",
+    UDim2.fromOffset(10, 31),
+    UDim2.new(1, -20, 0, 25),
+    11,
+    C.Muted
+)
+
+local playerList = create("ScrollingFrame", {
+    Position = UDim2.fromOffset(10, 59),
+    Size = UDim2.new(1, -20, 0, 100),
+    BackgroundColor3 = C.Background,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 3,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new()
+}, spectatorPage)
+
+round(playerList, 7)
+
+create("UIListLayout", {
+    Padding = UDim.new(0, 4),
+    SortOrder = Enum.SortOrder.Name
+}, playerList)
+
+create("UIPadding", {
+    PaddingTop = UDim.new(0, 4),
+    PaddingLeft = UDim.new(0, 4),
+    PaddingRight = UDim.new(0, 4)
+}, playerList)
 
 local function refreshPlayers()
     for _, child in ipairs(playerList:GetChildren()) do
@@ -701,303 +595,478 @@ local function refreshPlayers()
         end
     end
 
-    for _, target in ipairs(Players:GetPlayers()) do
-        if target ~= player then
-            local button = Instance.new("TextButton")
-            button.Size = UDim2.new(1, -2, 0, 32)
-            button.BackgroundColor3 = target == selectedPlayer and C.AccentDark or C.Surface
-            button.TextColor3 = C.Text
-            button.Text = target.DisplayName .. "  (@" .. target.Name .. ")"
-            button.TextSize = 11
-            button.Font = Enum.Font.Gotham
-            button.TextXAlignment = Enum.TextXAlignment.Left
-            button.BorderSizePixel = 0
-            button.Parent = playerList
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local button = makeButton(
+                playerList,
+                plr.DisplayName .. "  (@" .. plr.Name .. ")",
+                UDim2.new(),
+                UDim2.new(1, -4, 0, 27),
+                function()
+                    selectedPlayer = plr
+                    selectedLabel.Text = "Selected: " .. plr.Name
+                end
+            )
 
-            Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
-
-            button.Activated:Connect(function()
-                selectedPlayer = target
-                selectedLabel.Text = "  Selected: " .. target.Name
-                refreshPlayers()
-            end)
+            button.Name = plr.Name
         end
     end
 end
 
-local spectatorRow = createRow(spectatorPage, 5)
+makeButton(
+    spectatorPage,
+    "REFRESH PLAYERS",
+    UDim2.fromOffset(10, 166),
+    UDim2.new(1, -20, 0, 28),
+    refreshPlayers
+)
 
-spectateButton = createRowButton(spectatorRow, "START SPECTATING", function()
-    if spectating then
-        stopSpectating()
-        return
-    end
+local spectatorButton
 
-    local character = selectedPlayer and selectedPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-    if humanoid and humanoid.Health > 0 then
-        camera = workspace.CurrentCamera
-        oldCameraSubject = camera.CameraSubject
-        camera.CameraSubject = humanoid
-        spectating = true
-        spectateButton.Text = "STOP SPECTATING"
-    else
-        selectedLabel.Text = "  Player character unavailable"
-    end
-end, true)
-
-createRowButton(spectatorRow, "TELEPORT TO PLAYER", function()
-    local character, root = getCharacter()
-    local targetCharacter = selectedPlayer and selectedPlayer.Character
-    local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
-
-    if character and root and targetRoot then
-        character:PivotTo(targetRoot.CFrame * CFrame.new(4, 0, 0))
-    end
-end)
-
-createButton(spectatorPage, "REFRESH PLAYER LIST", 6, refreshPlayers)
-
-createButton(spectatorPage, "STOP SPECTATING", 7, stopSpectating)
-
--- WORLD PAGE
-
-createSection(worldPage, "POSITION SAVE SLOTS", 1)
-
-local worldInfo = Instance.new("TextLabel")
-worldInfo.Size = UDim2.new(1, -4, 0, 34)
-worldInfo.BackgroundColor3 = C.Panel
-worldInfo.Text = "  Save your current position and return whenever you want."
-worldInfo.TextColor3 = C.Muted
-worldInfo.TextSize = 11
-worldInfo.Font = Enum.Font.Gotham
-worldInfo.TextWrapped = true
-worldInfo.LayoutOrder = 2
-worldInfo.Parent = worldPage
-
-Instance.new("UICorner", worldInfo).CornerRadius = UDim.new(0, 8)
-
-for i = 1, 3 do
-    local card = Instance.new("Frame")
-    card.Size = UDim2.new(1, -4, 0, 100)
-    card.BackgroundColor3 = C.Panel
-    card.BorderSizePixel = 0
-    card.LayoutOrder = i + 2
-    card.Parent = worldPage
-
-    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-
-    local cardStroke = Instance.new("UIStroke")
-    cardStroke.Color = C.Border
-    cardStroke.Thickness = 1
-    cardStroke.Parent = card
-
-    local pointTitle = Instance.new("TextLabel")
-    pointTitle.Position = UDim2.fromOffset(12, 9)
-    pointTitle.Size = UDim2.new(1, -24, 0, 22)
-    pointTitle.BackgroundTransparency = 1
-    pointTitle.Text = "SAVE POINT  " .. i
-    pointTitle.TextColor3 = C.Text
-    pointTitle.TextSize = 12
-    pointTitle.Font = Enum.Font.GothamBold
-    pointTitle.TextXAlignment = Enum.TextXAlignment.Left
-    pointTitle.Parent = card
-
-    local status = Instance.new("TextLabel")
-    status.Position = UDim2.fromOffset(12, 32)
-    status.Size = UDim2.new(1, -24, 0, 18)
-    status.BackgroundTransparency = 1
-    status.Text = "Empty"
-    status.TextColor3 = C.Muted
-    status.TextSize = 11
-    status.Font = Enum.Font.Gotham
-    status.TextXAlignment = Enum.TextXAlignment.Left
-    status.Parent = card
-
-    local saveButton = Instance.new("TextButton")
-    saveButton.Position = UDim2.fromOffset(10, 59)
-    saveButton.Size = UDim2.new(0.34, -8, 0, 30)
-    saveButton.BackgroundColor3 = C.AccentDark
-    saveButton.Text = "SAVE"
-    saveButton.TextColor3 = C.Text
-    saveButton.TextSize = 10
-    saveButton.Font = Enum.Font.GothamBold
-    saveButton.BorderSizePixel = 0
-    saveButton.Parent = card
-
-    Instance.new("UICorner", saveButton).CornerRadius = UDim.new(0, 7)
-
-    local tpButton = Instance.new("TextButton")
-    tpButton.Position = UDim2.new(0.34, 0, 0, 59)
-    tpButton.Size = UDim2.new(0.33, -4, 0, 30)
-    tpButton.BackgroundColor3 = C.Surface
-    tpButton.Text = "TELEPORT"
-    tpButton.TextColor3 = C.Text
-    tpButton.TextSize = 9
-    tpButton.Font = Enum.Font.GothamBold
-    tpButton.BorderSizePixel = 0
-    tpButton.Parent = card
-
-    Instance.new("UICorner", tpButton).CornerRadius = UDim.new(0, 7)
-
-    local resetButton = Instance.new("TextButton")
-    resetButton.Position = UDim2.new(0.67, 0, 0, 59)
-    resetButton.Size = UDim2.new(0.33, -10, 0, 30)
-    resetButton.BackgroundColor3 = Color3.fromRGB(83, 38, 51)
-    resetButton.Text = "RESET"
-    resetButton.TextColor3 = C.Text
-    resetButton.TextSize = 9
-    resetButton.Font = Enum.Font.GothamBold
-    resetButton.BorderSizePixel = 0
-    resetButton.Parent = card
-
-    Instance.new("UICorner", resetButton).CornerRadius = UDim.new(0, 7)
-
-    saveButton.Activated:Connect(function()
-        local _, root = getCharacter()
-        if not root then return end
-
-        savedPoints[i] = root.CFrame
-
-        status.Text = string.format(
-            "Saved: %.0f, %.0f, %.0f",
-            root.Position.X,
-            root.Position.Y,
-            root.Position.Z
-        )
-
-        status.TextColor3 = C.Green
-        saveButton.Text = "UPDATE"
-    end)
-
-    tpButton.Activated:Connect(function()
-        local character = player.Character
-
-        if not savedPoints[i] or not character then
-            status.Text = "Save a position first!"
-            status.TextColor3 = C.Red
-            return
-        end
-
-        character:PivotTo(savedPoints[i])
-    end)
-
-    resetButton.Activated:Connect(function()
-        savedPoints[i] = nil
-        status.Text = "Empty"
-        status.TextColor3 = C.Muted
-        saveButton.Text = "SAVE"
-    end)
-end
-
-createSection(worldPage, "SESSION", 7)
-
-createButton(worldPage, "REJOIN CURRENT GAME", 8, function()
-    TeleportService:Teleport(game.PlaceId, player)
-end, true)
-
--- TAB SWITCHING
-
-local function switchTab(tab)
-    playerPage.Visible = tab == "Player"
-    spectatorPage.Visible = tab == "Spectator"
-    worldPage.Visible = tab == "World"
-
-    playerTab.BackgroundColor3 = tab == "Player" and C.Accent or C.Panel
-    playerTab.TextColor3 = tab == "Player" and C.Text or C.Muted
-
-    spectatorTab.BackgroundColor3 = tab == "Spectator" and C.Accent or C.Panel
-    spectatorTab.TextColor3 = tab == "Spectator" and C.Text or C.Muted
-
-    worldTab.BackgroundColor3 = tab == "World" and C.Accent or C.Panel
-    worldTab.TextColor3 = tab == "World" and C.Text or C.Muted
-end
-
-playerTab.Activated:Connect(function()
-    switchTab("Player")
-end)
-
-spectatorTab.Activated:Connect(function()
-    switchTab("Spectator")
-end)
-
-worldTab.Activated:Connect(function()
-    switchTab("World")
-end)
-
--- HIDE / SHOW GUI
-
-local function toggleGui()
-    gui.Enabled = not gui.Enabled
-end
-
-hideButton.Activated:Connect(toggleGui)
-
--- KEYBOARD SHORTCUTS
-
-UIS.InputBegan:Connect(function(input, processed)
-    if processed or UIS:GetFocusedTextBox() then return end
-
-    if input.KeyCode == Enum.KeyCode.LeftAlt then
-        toggleGui()
-    elseif input.KeyCode == Enum.KeyCode.F then
-        toggleFly()
-    elseif input.KeyCode == Enum.KeyCode.N then
-        toggleNoclip()
-    end
-end)
-
--- PLAYER EVENTS
-
-Players.PlayerAdded:Connect(refreshPlayers)
-
-Players.PlayerRemoving:Connect(function(leaving)
-    if selectedPlayer == leaving then
-        selectedPlayer = nil
-        selectedLabel.Text = "  No player selected"
+spectatorButton = makeButton(
+    spectatorPage,
+    "START SPECTATING",
+    UDim2.fromOffset(10, 200),
+    UDim2.new(1, -20, 0, 28),
+    function()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
 
         if spectating then
-            stopSpectating()
+            spectating = false
+            camera.CameraSubject = myHumanoid()
+            spectatorButton.Text = "START SPECTATING"
+        else
+            local targetHumanoid = getHumanoid(selectedPlayer)
+            if targetHumanoid then
+                camera.CameraSubject = targetHumanoid
+                spectating = true
+                spectatorButton.Text = "STOP SPECTATING"
+            end
         end
     end
+)
 
+makeButton(
+    spectatorPage,
+    "TELEPORT TO PLAYER",
+    UDim2.fromOffset(10, 234),
+    UDim2.new(1, -20, 0, 28),
+    function()
+        local root = myRoot()
+        local target = getRoot(selectedPlayer)
+
+        if root and target then
+            root.CFrame = target.CFrame * CFrame.new(3, 0, 0)
+        end
+    end
+)
+
+refreshPlayers()
+Players.PlayerAdded:Connect(refreshPlayers)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if selectedPlayer == plr then
+        selectedPlayer = nil
+        selectedLabel.Text = "Selected: none"
+    end
     refreshPlayers()
 end)
 
--- RESPAWN CLEANUP
+--==================================================
+-- WORLD PAGE: CHAMS AND NAME TAGS
+--==================================================
 
-player.CharacterAdded:Connect(function(character)
+makeSection(worldPage, "PLAYER VISUALS", 8)
+
+makeLabel(
+    worldPage,
+    "Highlight characters and show names at long range.",
+    UDim2.fromOffset(10, 30),
+    UDim2.new(1, -20, 0, 25),
+    10,
+    C.Muted
+)
+
+local getChams
+local setChams
+
+getChams, setChams = makeToggle(worldPage, "Chams / Highlight", 59, function(enabled)
+    chamsEnabled = enabled
+end)
+
+local getNames
+local setNames
+
+getNames, setNames = makeToggle(worldPage, "Player Name Tags", 95, function(enabled)
+    namesEnabled = enabled
+end)
+
+makeSection(worldPage, "SAVED POSITIONS", 137)
+
+for slot = 1, 3 do
+    local y = 162 + (slot - 1) * 34
+
+    makeLabel(
+        worldPage,
+        "SLOT " .. slot,
+        UDim2.fromOffset(10, y),
+        UDim2.fromOffset(48, 27),
+        9,
+        C.Muted
+    )
+
+    makeButton(
+        worldPage, "SAVE",
+        UDim2.fromOffset(60, y),
+        UDim2.fromOffset(65, 26),
+        function()
+            local root = myRoot()
+            if root then
+                savedPositions[slot] = root.CFrame
+            end
+        end
+    )
+
+    makeButton(
+        worldPage, "TELEPORT",
+        UDim2.fromOffset(131, y),
+        UDim2.fromOffset(82, 26),
+        function()
+            local root = myRoot()
+            if root and savedPositions[slot] then
+                root.CFrame = savedPositions[slot]
+            end
+        end
+    )
+
+    makeButton(
+        worldPage, "RESET",
+        UDim2.fromOffset(219, y),
+        UDim2.fromOffset(65, 26),
+        function()
+            savedPositions[slot] = nil
+        end
+    )
+end
+
+makeButton(
+    worldPage,
+    "REJOIN SERVER",
+    UDim2.fromOffset(10, 270),
+    UDim2.new(1, -20, 0, 28),
+    function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+)
+
+--==================================================
+-- CHAMS / NAME TAG SYSTEM
+--==================================================
+
+local function clearPlayerVisuals(plr)
+    if highlights[plr] then
+        highlights[plr]:Destroy()
+        highlights[plr] = nil
+    end
+
+    if nameTags[plr] then
+        nameTags[plr]:Destroy()
+        nameTags[plr] = nil
+    end
+end
+
+local function updatePlayerVisuals(plr)
+    if plr == LocalPlayer then
+        clearPlayerVisuals(plr)
+        return
+    end
+
+    local character = plr.Character
+
+    if not character then
+        clearPlayerVisuals(plr)
+        return
+    end
+
+    -- Highlight
+    if chamsEnabled then
+        local h = highlights[plr]
+
+        if not h or h.Parent ~= character then
+            if h then h:Destroy() end
+
+            h = Instance.new("Highlight")
+            h.Name = "NexusHighlight"
+            h.Adornee = character
+            h.FillColor = C.Accent
+            h.OutlineColor = Color3.new(1, 1, 1)
+            h.FillTransparency = 0.55
+            h.OutlineTransparency = 0
+            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            h.Parent = character
+
+            highlights[plr] = h
+        end
+    elseif highlights[plr] then
+        highlights[plr]:Destroy()
+        highlights[plr] = nil
+    end
+
+    -- Name tag
+    if namesEnabled then
+        local head = character:FindFirstChild("Head")
+        if not head then return end
+
+        local tag = nameTags[plr]
+
+        if not tag or tag.Parent ~= head then
+            if tag then tag:Destroy() end
+
+            tag = Instance.new("BillboardGui")
+            tag.Name = "NexusNameTag"
+            tag.Adornee = head
+            tag.Size = UDim2.fromOffset(180, 36)
+            tag.StudsOffset = Vector3.new(0, 2.7, 0)
+            tag.AlwaysOnTop = true
+            tag.MaxDistance = 100000
+            tag.LightInfluence = 0
+            tag.Parent = head
+
+            local backing = Instance.new("Frame")
+            backing.Size = UDim2.fromScale(1, 1)
+            backing.BackgroundColor3 = C.Background
+            backing.BackgroundTransparency = 0.15
+            backing.BorderSizePixel = 0
+            backing.Parent = tag
+            round(backing, 7)
+            stroke(backing, C.Accent, 0.2, 1)
+
+            local name = Instance.new("TextLabel")
+            name.BackgroundTransparency = 1
+            name.Position = UDim2.fromOffset(5, 0)
+            name.Size = UDim2.new(1, -10, 1, 0)
+            name.Font = Enum.Font.GothamBold
+            name.Text = plr.DisplayName .. "  @" .. plr.Name
+            name.TextColor3 = C.Text
+            name.TextSize = 11
+            name.TextStrokeTransparency = 0.65
+            name.TextScaled = false
+            name.Parent = backing
+
+            nameTags[plr] = tag
+        end
+    elseif nameTags[plr] then
+        nameTags[plr]:Destroy()
+        nameTags[plr] = nil
+    end
+end
+
+Players.PlayerRemoving:Connect(clearPlayerVisuals)
+
+--==================================================
+-- FLY SYSTEM
+--==================================================
+
+local function stopFly()
+    flyEnabled = false
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if flyBV then
+        flyBV:Destroy()
+        flyBV = nil
+    end
+
+    if flyBG then
+        flyBG:Destroy()
+        flyBG = nil
+    end
+end
+
+local function startFly()
     stopFly()
 
-    if noclip then
-        noclip = false
+    local root = myRoot()
+    if not root then
+        setFly(false)
+        return
+    end
 
-        if clipConnection then
-            clipConnection:Disconnect()
-            clipConnection = nil
+    flyEnabled = true
+
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    flyBV.Velocity = Vector3.zero
+    flyBV.Parent = root
+
+    flyBG = Instance.new("BodyGyro")
+    flyBG.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+    flyBG.P = 10000
+    flyBG.Parent = root
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flyEnabled or not root.Parent then
+            stopFly()
+            return
         end
 
-        restoreCollisions()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+
+        local direction = Vector3.zero
+
+        if UIS:IsKeyDown(Enum.KeyCode.W) then
+            direction += camera.CFrame.LookVector
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then
+            direction -= camera.CFrame.LookVector
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then
+            direction += camera.CFrame.RightVector
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then
+            direction -= camera.CFrame.RightVector
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then
+            direction += Vector3.yAxis
+        end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+            direction -= Vector3.yAxis
+        end
+
+        if direction.Magnitude > 0 then
+            direction = direction.Unit
+        end
+
+        flyBV.Velocity = direction * flySpeeds[flySpeedIndex]
+        flyBG.CFrame = camera.CFrame
+    end)
+end
+
+--==================================================
+-- NOCLIP SYSTEM
+--==================================================
+
+local function stopNoclip()
+    noclipEnabled = false
+
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
     end
 
-    noclipButton.Text = "NOCLIP  ·  OFF  [N]"
+    local character = LocalPlayer.Character
 
-    if spectating then
-        spectating = false
-        spectateButton.Text = "START SPECTATING"
+    if character then
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                local original = savedCollisions[part]
+                if original ~= nil then
+                    part.CanCollide = original
+                end
+                savedCollisions[part] = nil
+            end
+        end
+    end
+end
+
+local function startNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
     end
 
-    local humanoid = character:WaitForChild("Humanoid", 10)
-    if humanoid then
-        humanoid.UseJumpPower = true
-        humanoid.WalkSpeed = walkSpeed
-        humanoid.JumpPower = jumpPower
+    noclipEnabled = true
+
+    noclipConnection = RunService.Stepped:Connect(function()
+        local character = LocalPlayer.Character
+        if not character then return end
+
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if savedCollisions[part] == nil then
+                    savedCollisions[part] = part.CanCollide
+                end
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+--==================================================
+-- MAIN UPDATE
+--==================================================
+
+RunService.RenderStepped:Connect(function()
+    if flyEnabled and not flyConnection then
+        startFly()
+    elseif not flyEnabled and flyConnection then
+        stopFly()
+    end
+
+    if noclipEnabled and not noclipConnection then
+        startNoclip()
+    elseif not noclipEnabled and noclipConnection then
+        stopNoclip()
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            updatePlayerVisuals(plr)
+        end
     end
 end)
 
--- INITIALIZE
+--==================================================
+-- RESPAWN / KEYBINDS
+--==================================================
 
-refreshPlayers()
-switchTab("Player")
-applyMovementStats()
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.4)
+
+    applyWalkSpeed()
+    applyJumpPower()
+
+    if spectating then
+        spectating = false
+        spectatorButton.Text = "START SPECTATING"
+
+        local camera = workspace.CurrentCamera
+        if camera then
+            camera.CameraSubject = myHumanoid()
+        end
+    end
+
+    if noclipEnabled then
+        startNoclip()
+    end
+end)
+
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+
+    if input.KeyCode == Enum.KeyCode.LeftAlt then
+        main.Visible = not main.Visible
+    elseif input.KeyCode == Enum.KeyCode.F then
+        setFly(not flyEnabled)
+    elseif input.KeyCode == Enum.KeyCode.N then
+        setNoclip(not noclipEnabled)
+    end
+end)
+
+--==================================================
+-- INITIALIZE
+--==================================================
+
+applyWalkSpeed()
+applyJumpPower()
+
+setFly(false)
+setNoclip(false)
+setChams(false)
+setNames(false)
+
+print("NEXUS UI | PREMIUM EDITION loaded.")

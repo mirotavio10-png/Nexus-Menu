@@ -84,6 +84,7 @@ local runEnabled = false
 local clickTeleportEnabled = false
 local clickDestroyEnabled = false
 local chamsEnabled = false
+local teamChamsEnabled = false
 local nameTagsEnabled = false
 local spectating = false
 local selectedPlayer = nil
@@ -995,7 +996,7 @@ refreshPlayerVisuals = function()
     clearPlayerVisuals()
     -- Selection highlight is independent of the general chams toggle,
     -- so the currently selected player remains clearly marked in white.
-    if not chamsEnabled and not nameTagsEnabled and not selectedPlayer then return end
+    if not chamsEnabled and not teamChamsEnabled and not nameTagsEnabled and not selectedPlayer then return end
 
     for _, target in ipairs(Players:GetPlayers()) do
         if target ~= player and target.Character then
@@ -1004,13 +1005,27 @@ refreshPlayerVisuals = function()
             local humanoid = character:FindFirstChildOfClass("Humanoid")
             local isSelected = target == selectedPlayer
 
-            if (chamsEnabled or isSelected) and humanoid then
+            if (chamsEnabled or teamChamsEnabled or isSelected) and humanoid then
                 local highlight = Instance.new("Highlight")
                 highlight.Name = isSelected and "NEXU_SelectedPlayerHighlight" or "NEXU_LocalHighlight"
                 highlight:SetAttribute("NEXU_SelectedPlayer", isSelected)
                 highlight.Adornee = character
-                highlight.FillColor = isSelected and Color3.new(1, 1, 1) or COLORS.Purple
-                highlight.OutlineColor = isSelected and Color3.new(1, 1, 1) or COLORS.PurpleLight
+
+                -- Selected players stay white. Team Chams uses the Roblox TeamColor
+                -- for each player's team, with the menu accent as a fallback.
+                local fillColor = COLORS.Purple
+                local outlineColor = COLORS.PurpleLight
+                if teamChamsEnabled and target.Team then
+                    fillColor = target.Team.TeamColor.Color
+                    outlineColor = fillColor:Lerp(Color3.new(1, 1, 1), 0.3)
+                end
+                if isSelected then
+                    fillColor = Color3.new(1, 1, 1)
+                    outlineColor = Color3.new(1, 1, 1)
+                end
+
+                highlight.FillColor = fillColor
+                highlight.OutlineColor = outlineColor
                 highlight.FillTransparency = isSelected and 0.55 or 0.78
                 highlight.OutlineTransparency = isSelected and 0 or 0.08
                 highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -1064,13 +1079,21 @@ do
         if not silent then notify("Name Tags", value and "Enabled locally." or "Disabled.") end
     end)
 
-    addAction(page, "Refresh Visuals", 169, function()
+    makeToggle(page, "Team Chams (Team Colors)", 164, false, function(value, silent)
+        teamChamsEnabled = value
+        refreshPlayerVisuals()
+        if not silent then
+            notify("Team Chams", value and "Using each player's Roblox team color." or "Disabled.")
+        end
+    end)
+
+    addAction(page, "Refresh Visuals", 208, function()
         refreshPlayerVisuals()
         notify("Player Visuals", "Visuals refreshed.")
     end)
 
-    addLabel(page, "Chams use a light fill and clear outline so they are useful without overpowering the scene. Choose another accent in Settings to change their color.",
-        UDim2.fromOffset(14, 214), UDim2.new(1, -28, 0, 62), 10, COLORS.Muted)
+    addLabel(page, "Team Chams colors each player using their Roblox TeamColor. Players without a team use the menu accent. The selected player remains white.",
+        UDim2.fromOffset(14, 253), UDim2.new(1, -28, 0, 62), 10, COLORS.Muted)
 end
 
 --========================================================

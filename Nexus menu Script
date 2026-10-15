@@ -1,1429 +1,1684 @@
-
 --========================================================
--- NEXU MENU v2.0
+-- NEXU MENU | CLIENT-ONLY SCRIPT
+-- Place in: StarterPlayer > StarterPlayerScripts > NEXU_Menu
+-- No server script or RemoteEvent required.
 --========================================================
 
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local mouse = player:GetMouse()
 
 local oldGui = playerGui:FindFirstChild("NEXU_MENU")
 if oldGui then oldGui:Destroy() end
 
--- COLORS
-local C = {
-	Background = Color3.fromRGB(15, 12, 24),
-	Panel = Color3.fromRGB(24, 19, 37),
-	Item = Color3.fromRGB(36, 28, 53),
-	Purple = Color3.fromRGB(153, 86, 255),
-	PurpleLight = Color3.fromRGB(202, 166, 255),
-	Text = Color3.fromRGB(245, 240, 255),
-	Muted = Color3.fromRGB(157, 146, 177),
-	Green = Color3.fromRGB(75, 220, 145),
-	Red = Color3.fromRGB(255, 95, 115),
+--========================================================
+-- CONFIG / STATE
+--========================================================
+local COLORS = {
+    Background = Color3.fromRGB(15, 12, 24),
+    Panel = Color3.fromRGB(25, 20, 38),
+    Item = Color3.fromRGB(39, 31, 57),
+    ItemHover = Color3.fromRGB(67, 48, 96),
+    Purple = Color3.fromRGB(153, 86, 255),
+    PurpleLight = Color3.fromRGB(205, 174, 255),
+    Text = Color3.fromRGB(246, 242, 255),
+    Muted = Color3.fromRGB(163, 151, 181),
+    Green = Color3.fromRGB(83, 224, 151),
+    Red = Color3.fromRGB(255, 105, 125),
 }
 
-local accentColors = {
-	Color3.fromRGB(153, 86, 255),
-	Color3.fromRGB(70, 145, 255),
-	Color3.fromRGB(255, 85, 150),
-	Color3.fromRGB(65, 220, 170),
-	Color3.fromRGB(255, 165, 70),
-}
-
-local accentNames = {
-	"Premium Purple",
-	"Electric Blue",
-	"Neon Pink",
-	"Mint Green",
-	"Sunset Orange",
+local ACCENTS = {
+    { name = "Premium Purple", color = Color3.fromRGB(153, 86, 255) },
+    { name = "Electric Blue", color = Color3.fromRGB(61, 132, 255) },
+    { name = "Neon Pink", color = Color3.fromRGB(255, 65, 155) },
+    { name = "Mint Green", color = Color3.fromRGB(49, 211, 157) },
+    { name = "Sunset Orange", color = Color3.fromRGB(255, 145, 48) },
+    { name = "Ice Cyan", color = Color3.fromRGB(50, 210, 240) },
+    { name = "Ruby Red", color = Color3.fromRGB(245, 66, 90) },
+    { name = "Golden", color = Color3.fromRGB(255, 194, 55) },
 }
 
 local accentIndex = 1
-
--- STATE
+local DEFAULT_KEYBINDS = {
+    ["Menu Toggle"] = Enum.KeyCode.LeftAlt,
+    ["Fly"] = Enum.KeyCode.F,
+    ["Noclip"] = Enum.KeyCode.N,
+    ["Infinite Jump"] = Enum.KeyCode.J,
+    ["Click Teleport"] = Enum.KeyCode.T,
+    ["Click Destroy"] = Enum.KeyCode.X,
+    ["Run Boost"] = Enum.KeyCode.LeftShift,
+    ["Spectate Selected"] = Enum.KeyCode.P,
+    ["Next Player"] = Enum.KeyCode.K,
+    ["Teleport to Selected"] = Enum.KeyCode.G,
+    ["Toggle Chams"] = Enum.KeyCode.H,
+    ["Toggle Name Tags"] = Enum.KeyCode.B,
+}
+local keybinds = {}
+for actionName, keyCode in pairs(DEFAULT_KEYBINDS) do
+    keybinds[actionName] = keyCode
+end
+local menuOpen = true
 local currentTab = "Dashboard"
+local waitingForKeybind = nil
+local uiScaleValue = 1
+local accentLabels = {}
+local accentStrokes = {}
+local accentSwatches = {}
+
+local walkSpeedValue = 16
+local jumpPowerValue = 80
+local runSpeedValue = 90
+local flySpeedValue = 100
 local flyEnabled = false
+local infiniteJumpEnabled = false
 local noclipEnabled = false
+local runEnabled = false
+local clickTeleportEnabled = false
+local clickDestroyEnabled = false
 local chamsEnabled = false
-local tagsEnabled = false
-local flySpeed = 50
-
-local menuKey = Enum.KeyCode.LeftAlt
-local flyKey = Enum.KeyCode.F
-local noclipKey = Enum.KeyCode.N
-local waitingForKey = nil
-
+local nameTagsEnabled = false
+local spectating = false
 local selectedPlayer = nil
 local savedPositions = {}
+local savedPositionLabels = {}
 local originalCollisions = {}
-local highlights = {}
-local nameTags = {}
-
-local flyConnection
-local flyVelocity
-local flyGyro
-local noclipConnection
-
-local uiScaleValue = 1
-local windowTransparency = 0
-
--- THEME REGISTRIES
-local themeButtons = {}
-local themeLabels = {}
-local themeStrokes = {}
-
-local function registerButton(obj, baseColor, role)
-	table.insert(themeButtons, {
-		object = obj,
-		baseColor = baseColor,
-		role = role or "normal",
-	})
-end
-
-local function registerLabel(obj, role)
-	table.insert(themeLabels, {
-		object = obj,
-		role = role or "normal",
-	})
-end
-
-local function registerStroke(obj)
-	table.insert(themeStrokes, obj)
-end
-
--- INSTANCE HELPERS
-local function make(className, props, parent)
-	local obj = Instance.new(className)
-
-	for property, value in pairs(props or {}) do
-		obj[property] = value
-	end
-
-	obj.Parent = parent
-	return obj
-end
-
-local function corner(obj, radius)
-	make("UICorner", {
-		CornerRadius = UDim.new(0, radius or 8),
-	}, obj)
-end
-
-local function stroke(obj, color, thickness)
-	local s = make("UIStroke", {
-		Color = color or C.Purple,
-		Thickness = thickness or 1,
-		Transparency = 0.12,
-	}, obj)
-
-	registerStroke(s)
-	return s
-end
-
-local function label(parent, text, position, size, textSize, color, role)
-	local obj = make("TextLabel", {
-		BackgroundTransparency = 1,
-		Position = position,
-		Size = size,
-		Text = text,
-		TextColor3 = color or C.Text,
-		Font = Enum.Font.Gotham,
-		TextSize = textSize or 12,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Center,
-		TextWrapped = true,
-	}, parent)
-
-	registerLabel(obj, role or "normal")
-	return obj
-end
-
-local function button(parent, text, position, size, callback, baseColor, role)
-	baseColor = baseColor or C.Item
-
-	local obj = make("TextButton", {
-		Position = position,
-		Size = size,
-		BackgroundColor3 = baseColor,
-		BorderSizePixel = 0,
-		Text = text,
-		TextColor3 = C.Text,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 11,
-		AutoButtonColor = false,
-	}, parent)
-
-	corner(obj, 7)
-	registerButton(obj, baseColor, role or "normal")
-
-	obj.MouseEnter:Connect(function()
-		if obj.Parent then
-			TweenService:Create(obj, TweenInfo.new(0.12), {
-				BackgroundColor3 = C.Purple,
-				TextColor3 = Color3.new(1, 1, 1),
-			}):Play()
-		end
-	end)
-
-	obj.MouseLeave:Connect(function()
-		if obj.Parent then
-			TweenService:Create(obj, TweenInfo.new(0.12), {
-				BackgroundColor3 = baseColor,
-				TextColor3 = C.Text,
-			}):Play()
-		end
-	end)
-
-	obj.Activated:Connect(function()
-		if callback then callback() end
-	end)
-
-	return obj
-end
-
-local function section(parent, text, y)
-	return label(
-		parent,
-		string.upper(text),
-		UDim2.fromOffset(10, y),
-		UDim2.new(1, -20, 0, 22),
-		10,
-		C.PurpleLight,
-		"accentLight"
-	)
-end
-
-local function action(parent, text, y, callback)
-	return button(
-		parent,
-		text,
-		UDim2.fromOffset(10, y),
-		UDim2.new(1, -20, 0, 32),
-		callback
-	)
-end
-
--- CHARACTER HELPERS
-local function humanoidOf(target)
-	local character = target and target.Character
-	return character and character:FindFirstChildOfClass("Humanoid")
-end
-
-local function rootOf(target)
-	local character = target and target.Character
-	return character and character:FindFirstChild("HumanoidRootPart")
-end
-
-local function myHumanoid()
-	return humanoidOf(player)
-end
-
-local function myRoot()
-	return rootOf(player)
-end
-
--- GUI
-local gui = make("ScreenGui", {
-	Name = "NEXU_MENU",
-	ResetOnSpawn = false,
-	IgnoreGuiInset = true,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-}, playerGui)
-
-local main = make("Frame", {
-	Name = "Main",
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(590, 440),
-	BackgroundColor3 = C.Background,
-	BackgroundTransparency = windowTransparency,
-	BorderSizePixel = 0,
-}, gui)
-
-corner(main, 12)
-local mainStroke = stroke(main, C.Purple, 1.4)
-
-local uiScale = make("UIScale", {
-	Scale = uiScaleValue,
-}, main)
-
--- HEADER
-local header = make("Frame", {
-	BackgroundColor3 = C.Panel,
-	BorderSizePixel = 0,
-	Size = UDim2.new(1, 0, 0, 54),
-}, main)
-corner(header, 12)
-
--- CUSTOM N LOGO
-local logo = make("Frame", {
-	Position = UDim2.fromOffset(12, 8),
-	Size = UDim2.fromOffset(37, 37),
-	BackgroundColor3 = C.Purple,
-	BorderSizePixel = 0,
-}, header)
-corner(logo, 11)
-local logoStroke = stroke(logo, C.PurpleLight, 1.5)
-
-local logoLetter = label(
-	logo,
-	"N",
-	UDim2.fromScale(0, 0),
-	UDim2.fromScale(1, 1),
-	23,
-	Color3.new(1, 1, 1)
-)
-logoLetter.Font = Enum.Font.GothamBlack
-logoLetter.TextXAlignment = Enum.TextXAlignment.Center
-
-label(
-	header,
-	"NEXU MENU",
-	UDim2.fromOffset(59, 7),
-	UDim2.fromOffset(200, 25),
-	17,
-	C.PurpleLight,
-	"accentLight"
-).Font = Enum.Font.GothamBold
-
-label(
-	header,
-	"CUSTOM GAME INTERFACE",
-	UDim2.fromOffset(60, 30),
-	UDim2.fromOffset(210, 15),
-	8,
-	C.Muted
-)
-
-local altHint = label(
-	header,
-	"LEFT ALT: SHOW / HIDE",
-	UDim2.new(1, -190, 0, 0),
-	UDim2.fromOffset(150, 48),
-	8,
-	C.PurpleLight,
-	"accentLight"
-)
-altHint.TextXAlignment = Enum.TextXAlignment.Right
-
-button(
-	header,
-	"×",
-	UDim2.new(1, -37, 0, 10),
-	UDim2.fromOffset(27, 27),
-	function()
-		main.Visible = false
-	end
-).TextSize = 18
-
--- SIDEBAR AND CONTENT
-local sidebar = make("Frame", {
-	BackgroundColor3 = C.Panel,
-	BorderSizePixel = 0,
-	Position = UDim2.fromOffset(10, 64),
-	Size = UDim2.new(0, 132, 1, -74),
-}, main)
-corner(sidebar, 9)
-
-local content = make("Frame", {
-	BackgroundColor3 = C.Panel,
-	BorderSizePixel = 0,
-	Position = UDim2.fromOffset(152, 64),
-	Size = UDim2.new(1, -162, 1, -74),
-	ClipsDescendants = true,
-}, main)
-corner(content, 9)
-
--- PAGES
-local tabNames = {
-	"Dashboard",
-	"Player",
-	"Spectator",
-	"World",
-	"Settings",
-	"Controls",
-}
+local playerHighlights = {}
+local playerBillboards = {}
+local playerNameLabels = {}
+local playerList = nil
+local selectedPlayerLabel = nil
+local refreshPlayerList = nil
+local runToggle = nil
+local chamsToggle = nil
+local nameTagsToggle = nil
 
 local pages = {}
 local tabButtons = {}
+local sliderControls = {}
+local toggleControls = {}
+local activeSlider = nil
+local flyConnection = nil
+local flyVelocity = nil
+local flyOrientation = nil
+local flyAttachment = nil
+local noclipConnection = nil
+local notificationCounter = 0
 
-local function createPage()
-	local page = make("ScrollingFrame", {
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.fromScale(1, 1),
-		CanvasSize = UDim2.fromOffset(0, 520),
-		ScrollBarThickness = 4,
-		ScrollBarImageColor3 = C.Purple,
-		ScrollingEnabled = true,
-		Visible = false,
-	}, content)
-
-	return page
+--========================================================
+-- INSTANCE / UI HELPERS
+--========================================================
+local function make(className, properties, parent)
+    local object = Instance.new(className)
+    for property, value in pairs(properties or {}) do
+        object[property] = value
+    end
+    object.Parent = parent
+    return object
 end
 
-for _, name in ipairs(tabNames) do
-	pages[name] = createPage()
+local function addCorner(object, radius)
+    make("UICorner", { CornerRadius = UDim.new(0, radius or 8) }, object)
 end
 
-local function switchTab(name)
-	currentTab = name
-
-	for tabName, page in pairs(pages) do
-		page.Visible = tabName == name
-	end
-
-	for tabName, tab in pairs(tabButtons) do
-		local entryRole = tabName == name and "selectedTab" or "tab"
-		tab.BackgroundColor3 =
-			tabName == name and C.Purple or C.Item
-
-		for _, entry in ipairs(themeButtons) do
-			if entry.object == tab then
-				entry.role = entryRole
-				break
-			end
-		end
-	end
+local function addStroke(object, color, thickness, transparency)
+    local stroke = make("UIStroke", {
+        Color = color or COLORS.Purple,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0.15,
+    }, object)
+    table.insert(accentStrokes, stroke)
+    return stroke
 end
 
-for index, name in ipairs(tabNames) do
-	local tab = button(
-		sidebar,
-		name,
-		UDim2.fromOffset(8, 10 + (index - 1) * 43),
-		UDim2.new(1, -16, 0, 35),
-		function()
-			switchTab(name)
-		end,
-		name == currentTab and C.Purple or C.Item,
-		name == currentTab and "selectedTab" or "tab"
-	)
-
-	tabButtons[name] = tab
+local function registerAccentLabel(object)
+    table.insert(accentLabels, object)
+    return object
 end
 
--- NOTIFICATIONS
-local notificationHolder = make("Frame", {
-	BackgroundTransparency = 1,
-	Position = UDim2.new(1, -300, 0, 20),
-	Size = UDim2.fromOffset(280, 320),
+local function addLabel(parent, text, position, size, textSize, color, font)
+    local object = make("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = position,
+        Size = size,
+        Text = text,
+        TextColor3 = color or COLORS.Text,
+        Font = font or Enum.Font.Gotham,
+        TextSize = textSize or 12,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, parent)
+    return object
+end
+
+local function addButton(parent, text, position, size, callback, baseColor)
+    local normalColor = baseColor or COLORS.Item
+    local object = make("TextButton", {
+        Position = position,
+        Size = size,
+        BackgroundColor3 = normalColor,
+        BorderSizePixel = 0,
+        Text = text,
+        TextColor3 = COLORS.Text,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 11,
+        AutoButtonColor = false,
+    }, parent)
+    addCorner(object, 7)
+
+    object.MouseEnter:Connect(function()
+        if object.Parent then
+            TweenService:Create(object, TweenInfo.new(0.12), {
+                BackgroundColor3 = COLORS.ItemHover,
+            }):Play()
+        end
+    end)
+    object.MouseLeave:Connect(function()
+        if object.Parent then
+            local restingColor = object:GetAttribute("NEXU_RestingColor") or normalColor
+            TweenService:Create(object, TweenInfo.new(0.12), {
+                BackgroundColor3 = restingColor,
+            }):Play()
+        end
+    end)
+    object.Activated:Connect(function()
+        if callback then callback() end
+    end)
+    return object
+end
+
+local function addSection(parent, title, y)
+    local heading = addLabel(parent, string.upper(title), UDim2.fromOffset(12, y),
+        UDim2.new(1, -24, 0, 22), 10, COLORS.PurpleLight, Enum.Font.GothamBold)
+    registerAccentLabel(heading)
+    return heading
+end
+
+local function addAction(parent, title, y, callback)
+    return addButton(parent, title, UDim2.fromOffset(12, y),
+        UDim2.new(1, -24, 0, 32), callback)
+end
+
+local gui = make("ScreenGui", {
+    Name = "NEXU_MENU",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, playerGui)
+
+local main = make("Frame", {
+    Name = "Main",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(660, 480),
+    BackgroundColor3 = COLORS.Background,
+    BorderSizePixel = 0,
 }, gui)
+addCorner(main, 13)
+local mainStroke = addStroke(main, COLORS.Purple, 1.5)
+local uiScale = make("UIScale", { Scale = uiScaleValue }, main)
 
+local header = make("Frame", {
+    Name = "Header",
+    BackgroundColor3 = COLORS.Panel,
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 52),
+}, main)
+addCorner(header, 12)
+
+local logo = make("Frame", {
+    Position = UDim2.fromOffset(12, 8),
+    Size = UDim2.fromOffset(36, 36),
+    BackgroundColor3 = COLORS.Purple,
+    BorderSizePixel = 0,
+}, header)
+addCorner(logo, 10)
+addStroke(logo, COLORS.PurpleLight, 1.2)
+local logoText = addLabel(logo, "N", UDim2.fromScale(0, 0), UDim2.fromScale(1, 1),
+    22, Color3.new(1, 1, 1), Enum.Font.GothamBlack)
+logoText.TextXAlignment = Enum.TextXAlignment.Center
+
+local menuTitleLabel = registerAccentLabel(addLabel(header, "NEXU MENU", UDim2.fromOffset(58, 6), UDim2.fromOffset(210, 25),
+    17, COLORS.PurpleLight, Enum.Font.GothamBlack))
+addLabel(header, "CUSTOM MENU", UDim2.fromOffset(59, 29), UDim2.fromOffset(210, 15),
+    8, COLORS.Muted, Enum.Font.Gotham)
+
+local keyHint = registerAccentLabel(addLabel(header, "LEFT ALT  •  SHOW / HIDE", UDim2.new(1, -198, 0, 0),
+    UDim2.fromOffset(155, 48), 8, COLORS.PurpleLight, Enum.Font.GothamBold))
+keyHint.TextXAlignment = Enum.TextXAlignment.Right
+
+local closeButton = addButton(header, "×", UDim2.new(1, -39, 0, 10),
+    UDim2.fromOffset(28, 28), function()
+        main.Visible = false
+        menuOpen = false
+    end)
+closeButton.TextSize = 19
+
+local sidebar = make("Frame", {
+    Name = "Sidebar",
+    BackgroundColor3 = COLORS.Panel,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(10, 62),
+    Size = UDim2.new(0, 132, 1, -72),
+}, main)
+addCorner(sidebar, 9)
+
+local content = make("Frame", {
+    Name = "Content",
+    BackgroundColor3 = COLORS.Panel,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(152, 62),
+    Size = UDim2.new(1, -162, 1, -72),
+    ClipsDescendants = true,
+}, main)
+addCorner(content, 9)
+
+local tabNames = { "Dashboard", "Player", "Abilities", "Spectator", "Visuals", "Other", "Keybinds", "Settings" }
+for _, tabName in ipairs(tabNames) do
+    pages[tabName] = make("ScrollingFrame", {
+        Name = tabName .. "Page",
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.fromScale(1, 1),
+        CanvasSize = UDim2.fromOffset(0, 760),
+        ScrollBarThickness = 4,
+        ScrollBarImageColor3 = COLORS.Purple,
+        ScrollingEnabled = true,
+        Visible = false,
+    }, content)
+end
+
+local function switchTab(tabName)
+    currentTab = tabName
+    for name, page in pairs(pages) do
+        page.Visible = (name == tabName)
+    end
+    for name, tab in pairs(tabButtons) do
+        local resting = name == tabName and COLORS.Purple or COLORS.Item
+        tab:SetAttribute("NEXU_RestingColor", resting)
+        tab.BackgroundColor3 = resting
+    end
+end
+
+for index, tabName in ipairs(tabNames) do
+    tabButtons[tabName] = addButton(sidebar, tabName,
+        UDim2.fromOffset(8, 10 + (index - 1) * 42),
+        UDim2.new(1, -16, 0, 34), function()
+            switchTab(tabName)
+        end, tabName == currentTab and COLORS.Purple or COLORS.Item)
+end
+
+--========================================================
+-- NOTIFICATIONS
+--========================================================
+local noticeHolder = make("Frame", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(1, -296, 0, 18),
+    Size = UDim2.fromOffset(278, 320),
+}, gui)
 make("UIListLayout", {
-	Padding = UDim.new(0, 8),
-	SortOrder = Enum.SortOrder.LayoutOrder,
-}, notificationHolder)
-
-local notificationOrder = 0
+    Padding = UDim.new(0, 7),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, noticeHolder)
 
 local function notify(title, message, duration)
-	notificationOrder += 1
+    notificationCounter += 1
+    local card = make("Frame", {
+        BackgroundColor3 = COLORS.Panel,
+        BackgroundTransparency = 0.04,
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(278, 65),
+        LayoutOrder = -notificationCounter,
+    }, noticeHolder)
+    addCorner(card, 8)
+    addStroke(card, COLORS.Purple, 1)
+    make("Frame", {
+        BackgroundColor3 = COLORS.Purple,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 4, 1, 0),
+    }, card)
+    addLabel(card, tostring(title), UDim2.fromOffset(13, 4),
+        UDim2.new(1, -20, 0, 23), 12, COLORS.PurpleLight, Enum.Font.GothamBold)
+    addLabel(card, tostring(message), UDim2.fromOffset(13, 28),
+        UDim2.new(1, -20, 0, 30), 10, COLORS.Text)
 
-	local card = make("Frame", {
-		BackgroundColor3 = C.Panel,
-		BackgroundTransparency = 0.05,
-		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(280, 67),
-		LayoutOrder = -notificationOrder,
-	}, notificationHolder)
+    card.Position = UDim2.fromOffset(295, 0)
+    card.BackgroundTransparency = 1
+    TweenService:Create(card, TweenInfo.new(0.2), {
+        Position = UDim2.fromOffset(0, 0), BackgroundTransparency = 0.04,
+    }):Play()
 
-	corner(card, 9)
-	stroke(card, C.Purple, 1)
-
-	make("Frame", {
-		BackgroundColor3 = C.Purple,
-		BorderSizePixel = 0,
-		Size = UDim2.new(0, 4, 1, 0),
-	}, card)
-
-	label(
-		card,
-		tostring(title),
-		UDim2.fromOffset(14, 6),
-		UDim2.new(1, -22, 0, 23),
-		12,
-		C.PurpleLight,
-		"accentLight"
-	).Font = Enum.Font.GothamBold
-
-	label(
-		card,
-		tostring(message),
-		UDim2.fromOffset(14, 30),
-		UDim2.new(1, -22, 0, 29),
-		10,
-		C.Text
-	)
-
-	card.Position = UDim2.fromOffset(300, 0)
-	card.BackgroundTransparency = 1
-
-	TweenService:Create(card, TweenInfo.new(0.22), {
-		Position = UDim2.fromOffset(0, 0),
-		BackgroundTransparency = 0.05,
-	}):Play()
-
-	task.delay(duration or 3, function()
-		if not card.Parent then return end
-
-		local tween = TweenService:Create(card, TweenInfo.new(0.2), {
-			Position = UDim2.fromOffset(300, 0),
-			BackgroundTransparency = 1,
-		})
-
-		tween:Play()
-		tween.Completed:Wait()
-
-		if card.Parent then card:Destroy() end
-	end)
+    task.delay(duration or 3, function()
+        if not card.Parent then return end
+        local tween = TweenService:Create(card, TweenInfo.new(0.18), {
+            Position = UDim2.fromOffset(295, 0), BackgroundTransparency = 1,
+        })
+        tween:Play()
+        tween.Completed:Wait()
+        if card.Parent then card:Destroy() end
+    end)
 end
 
--- FLY
-local toggleFly
+--========================================================
+-- CHARACTER HELPERS
+--========================================================
+local function getCharacter()
+    return player.Character
+end
+
+local function getHumanoid()
+    local character = getCharacter()
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+    local character = getCharacter()
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+--========================================================
+-- DRAGGABLE SLIDER WIDGET
+--========================================================
+local function makeSlider(parent, title, y, minimum, maximum, initialValue, callback)
+    local row = make("Frame", {
+        BackgroundColor3 = COLORS.Item,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(12, y),
+        Size = UDim2.new(1, -24, 0, 63),
+    }, parent)
+    addCorner(row, 8)
+
+    local titleLabel = addLabel(row, title, UDim2.fromOffset(10, 4),
+        UDim2.new(1, -100, 0, 22), 11, COLORS.Text, Enum.Font.GothamMedium)
+    local valueLabel = addLabel(row, tostring(initialValue), UDim2.new(1, -82, 0, 4),
+        UDim2.fromOffset(70, 22), 11, COLORS.PurpleLight, Enum.Font.GothamBold)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    local track = make("Frame", {
+        Name = "Track",
+        Active = true,
+        BackgroundColor3 = Color3.fromRGB(61, 49, 81),
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 11, 0, 39),
+        Size = UDim2.new(1, -22, 0, 7),
+    }, row)
+    addCorner(track, 4)
+
+    local fill = make("Frame", {
+        Name = "Fill",
+        Active = true,
+        BackgroundColor3 = COLORS.Purple,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 0, 1, 0),
+    }, track)
+    addCorner(fill, 4)
+
+    local knob = make("Frame", {
+        Name = "Knob",
+        Active = true,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        Size = UDim2.fromOffset(14, 14),
+        BackgroundColor3 = COLORS.Text,
+        BorderSizePixel = 0,
+    }, track)
+    addCorner(knob, 7)
+    addStroke(knob, COLORS.Purple, 1.5)
+
+    local control = { value = initialValue, minimum = minimum, maximum = maximum }
+    local function setValue(value, silent)
+        value = math.clamp(math.floor(value + 0.5), minimum, maximum)
+        control.value = value
+        local alpha = (value - minimum) / (maximum - minimum)
+        fill.Size = UDim2.new(alpha, 0, 1, 0)
+        knob.Position = UDim2.new(alpha, 0, 0.5, 0)
+        valueLabel.Text = tostring(value)
+        if callback and not silent then callback(value) end
+    end
+    control.setValue = setValue
+    control.row = row
+    control.fill = fill
+    control.knob = knob
+    control.knobStroke = knob:FindFirstChildOfClass("UIStroke")
+
+    local function updateFromX(screenX)
+        if track.AbsoluteSize.X <= 0 then return end
+        local alpha = math.clamp((screenX - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        setValue(minimum + (maximum - minimum) * alpha)
+    end
+    control.updateFromX = updateFromX
+
+    local function startDrag(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            activeSlider = control
+            updateFromX(input.Position.X)
+        end
+    end
+    track.InputBegan:Connect(startDrag)
+    fill.InputBegan:Connect(startDrag)
+    knob.InputBegan:Connect(startDrag)
+
+    setValue(initialValue, true)
+    table.insert(sliderControls, control)
+    return control
+end
+
+UserInputService.InputChanged:Connect(function(input)
+    if activeSlider and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+        activeSlider.updateFromX(input.Position.X)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        activeSlider = nil
+    end
+end)
+
+--========================================================
+-- TOGGLE WIDGET
+--========================================================
+local function makeToggle(parent, title, y, initialValue, callback)
+    local row = make("Frame", {
+        BackgroundColor3 = COLORS.Item,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(12, y),
+        Size = UDim2.new(1, -24, 0, 37),
+    }, parent)
+    addCorner(row, 8)
+    addLabel(row, title, UDim2.fromOffset(10, 0),
+        UDim2.new(1, -88, 1, 0), 11, COLORS.Text, Enum.Font.GothamMedium)
+
+    local toggleButton = addButton(row, "OFF", UDim2.new(1, -68, 0.5, -12),
+        UDim2.fromOffset(56, 24), nil, COLORS.Panel)
+    local control = { value = initialValue }
+    -- addButton supplies hover colors; restore the true ON/OFF color on mouse leave.
+    toggleButton.MouseLeave:Connect(function()
+        toggleButton.BackgroundColor3 = control.value and COLORS.Purple or COLORS.Panel
+    end)
+
+    local function setValue(value, silent)
+        control.value = value == true
+        toggleButton.Text = control.value and "ON" or "OFF"
+        local resting = control.value and COLORS.Purple or COLORS.Panel
+        toggleButton:SetAttribute("NEXU_RestingColor", resting)
+        toggleButton.BackgroundColor3 = resting
+        if callback then callback(control.value, silent == true) end
+    end
+    control.setValue = setValue
+    control.button = toggleButton
+    toggleButton.Activated:Connect(function()
+        setValue(not control.value, false)
+    end)
+    setValue(initialValue, true)
+    table.insert(toggleControls, control)
+    return control
+end
+
+--========================================================
+-- MOVEMENT / FLIGHT / NOCLIP
+--========================================================
+local function applyMovement()
+    local humanoid = getHumanoid()
+    if not humanoid then return end
+    humanoid.WalkSpeed = runEnabled and runSpeedValue or walkSpeedValue
+    humanoid.UseJumpPower = true
+    humanoid.JumpPower = jumpPowerValue
+end
+
+local function cleanFlightObjects()
+    if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+    if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end
+    if flyOrientation then flyOrientation:Destroy(); flyOrientation = nil end
+    if flyAttachment then flyAttachment:Destroy(); flyAttachment = nil end
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.AutoRotate = true
+        humanoid.PlatformStand = false
+    end
+end
 
 local function stopFly()
-	flyEnabled = false
-
-	if flyConnection then
-		flyConnection:Disconnect()
-		flyConnection = nil
-	end
-
-	if flyVelocity then
-		flyVelocity:Destroy()
-		flyVelocity = nil
-	end
-
-	if flyGyro then
-		flyGyro:Destroy()
-		flyGyro = nil
-	end
-
-	local hum = myHumanoid()
-	if hum then
-		hum.PlatformStand = false
-		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-	end
+    cleanFlightObjects()
+    local humanoid = getHumanoid()
+    if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end
 end
 
 local function startFly()
-	local root = myRoot()
-	local hum = myHumanoid()
+    cleanFlightObjects()
+    local character = getCharacter()
+    local root = getRoot()
+    local humanoid = getHumanoid()
+    if not character or not root or not humanoid then
+        notify("Fly", "Character is not ready.")
+        return
+    end
 
-	if not root or not hum then
-		notify("Fly", "Character is not ready.")
-		return
-	end
+    flyAttachment = Instance.new("Attachment")
+    flyAttachment.Name = "NEXU_FlyAttachment"
+    flyAttachment.Parent = root
 
-	stopFly()
-	flyEnabled = true
+    flyVelocity = Instance.new("LinearVelocity")
+    flyVelocity.Name = "NEXU_FlyVelocity"
+    flyVelocity.Attachment0 = flyAttachment
+    flyVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    flyVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    flyVelocity.VectorVelocity = Vector3.zero
+    flyVelocity.MaxForce = 1000000
+    flyVelocity.Parent = root
 
-	flyVelocity = make("BodyVelocity", {
-		MaxForce = Vector3.new(1e6, 1e6, 1e6),
-		Velocity = Vector3.zero,
-		P = 12500,
-	}, root)
+    flyOrientation = Instance.new("AlignOrientation")
+    flyOrientation.Name = "NEXU_FlyOrientation"
+    flyOrientation.Attachment0 = flyAttachment
+    flyOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    flyOrientation.MaxTorque = 1000000
+    flyOrientation.Responsiveness = 12
+    flyOrientation.Parent = root
 
-	flyGyro = make("BodyGyro", {
-		MaxTorque = Vector3.new(1e6, 1e6, 1e6),
-		P = 10000,
-		D = 500,
-		CFrame = workspace.CurrentCamera.CFrame,
-	}, root)
+    humanoid.AutoRotate = false
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
-	hum.PlatformStand = true
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flyEnabled or not root.Parent or player.Character ~= character then
+            cleanFlightObjects()
+            return
+        end
 
-	flyConnection = RunService.RenderStepped:Connect(function()
-		if not flyEnabled or not root.Parent then
-			stopFly()
-			return
-		end
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local direction = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction += camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction -= camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction += camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction -= camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then direction -= Vector3.new(0, 1, 0) end
 
-		local camera = workspace.CurrentCamera
-		local direction = Vector3.zero
-
-		if UIS:IsKeyDown(Enum.KeyCode.W) then
-			direction += camera.CFrame.LookVector
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then
-			direction -= camera.CFrame.LookVector
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.D) then
-			direction += camera.CFrame.RightVector
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.A) then
-			direction -= camera.CFrame.RightVector
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			direction += Vector3.new(0, 1, 0)
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
-			direction -= Vector3.new(0, 1, 0)
-		end
-
-		flyVelocity.Velocity =
-			direction.Magnitude > 0 and direction.Unit * flySpeed
-			or Vector3.zero
-
-		flyGyro.CFrame = camera.CFrame
-	end)
-
-	notify("Fly", "Enabled: WASD, Space and Left Ctrl.")
+        flyVelocity.VectorVelocity = direction.Magnitude > 0 and direction.Unit * flySpeedValue or Vector3.zero
+        flyOrientation.CFrame = camera.CFrame.Rotation
+    end)
 end
 
-toggleFly = function()
-	if flyEnabled then
-		stopFly()
-		notify("Fly", "Disabled.")
-	else
-		startFly()
-	end
-end
-
--- NOCLIP
 local function setNoclip(value)
-	noclipEnabled = value
+    noclipEnabled = value == true
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
 
-	if noclipConnection then
-		noclipConnection:Disconnect()
-		noclipConnection = nil
-	end
+    if not noclipEnabled then
+        for part, oldValue in pairs(originalCollisions) do
+            if part and part.Parent then part.CanCollide = oldValue end
+        end
+        table.clear(originalCollisions)
+        return
+    end
 
-	if value then
-		noclipConnection = RunService.Stepped:Connect(function()
-			local character = player.Character
-			if not character then return end
-
-			for _, part in ipairs(character:GetDescendants()) do
-				if part:IsA("BasePart") then
-					if originalCollisions[part] == nil then
-						originalCollisions[part] = part.CanCollide
-					end
-					part.CanCollide = false
-				end
-			end
-		end)
-
-		notify("Noclip", "Enabled.")
-	else
-		for part, oldValue in pairs(originalCollisions) do
-			if part and part.Parent then
-				part.CanCollide = oldValue
-			end
-		end
-
-		table.clear(originalCollisions)
-		notify("Noclip", "Disabled.")
-	end
+    noclipConnection = RunService.Stepped:Connect(function()
+        local character = getCharacter()
+        if not character then return end
+        for _, object in ipairs(character:GetDescendants()) do
+            if object:IsA("BasePart") then
+                if originalCollisions[object] == nil then
+                    originalCollisions[object] = object.CanCollide
+                end
+                object.CanCollide = false
+            end
+        end
+    end)
 end
 
--- DASHBOARD
+--========================================================
+-- DASHBOARD PAGE
+--========================================================
 do
-	local page = pages.Dashboard
+    local page = pages.Dashboard
+    addSection(page, "Welcome back", 9)
 
-	section(page, "Welcome back", 8)
+    local welcome = make("Frame", {
+        BackgroundColor3 = COLORS.Item,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(12, 34),
+        Size = UDim2.new(1, -24, 0, 72),
+    }, page)
+    addCorner(welcome, 9)
+    addLabel(welcome, "NEXU MENU", UDim2.fromOffset(12, 6),
+        UDim2.new(1, -24, 0, 28), 18, COLORS.PurpleLight, Enum.Font.GothamBlack)
+    addLabel(welcome, "Welcome, @" .. player.Name, UDim2.fromOffset(12, 37),
+        UDim2.new(1, -24, 0, 22), 11, COLORS.Muted)
 
-	local welcome = make("Frame", {
-		BackgroundColor3 = C.Item,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, 34),
-		Size = UDim2.new(1, -20, 0, 70),
-	}, page)
-	corner(welcome, 9)
+    addSection(page, "Live statistics", 119)
+    local stats = make("Frame", {
+        BackgroundColor3 = COLORS.Background,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(12, 145),
+        Size = UDim2.new(1, -24, 0, 112),
+    }, page)
+    addCorner(stats, 8)
 
-	label(
-		welcome,
-		"NEXU MENU",
-		UDim2.fromOffset(12, 7),
-		UDim2.new(1, -24, 0, 27),
-		18,
-		C.PurpleLight,
-		"accentLight"
-	).Font = Enum.Font.GothamBlack
+    local playerCount = addLabel(stats, "Players in server: --", UDim2.fromOffset(12, 5),
+        UDim2.new(1, -24, 0, 22), 11)
+    local speedStat = addLabel(stats, "WalkSpeed: --", UDim2.fromOffset(12, 31),
+        UDim2.new(1, -24, 0, 22), 11)
+    local jumpStat = addLabel(stats, "JumpPower: --", UDim2.fromOffset(12, 57),
+        UDim2.new(1, -24, 0, 22), 11)
+    addLabel(stats, "Place ID: " .. tostring(game.PlaceId), UDim2.fromOffset(12, 83),
+        UDim2.new(1, -24, 0, 20), 10, COLORS.Muted)
 
-	label(
-		welcome,
-		"Welcome, @" .. player.Name,
-		UDim2.fromOffset(12, 36),
-		UDim2.new(1, -24, 0, 22),
-		11,
-		C.Muted
-	)
+    addSection(page, "Quick actions", 269)
+    addAction(page, "Refresh Statistics", 295, function()
+        local humanoid = getHumanoid()
+        playerCount.Text = "Players in server: " .. #Players:GetPlayers()
+        speedStat.Text = "WalkSpeed: " .. (humanoid and tostring(math.floor(humanoid.WalkSpeed)) or "--")
+        jumpStat.Text = "JumpPower: " .. (humanoid and tostring(math.floor(humanoid.JumpPower)) or "--")
+        notify("Dashboard", "Statistics refreshed.")
+    end)
+    addAction(page, "Reset Character", 335, function()
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid.Health = 0
+        else
+            notify("Character", "Character is not ready.")
+        end
+    end)
 
-	section(page, "Live statistics", 116)
+    addAction(page, "Rejoin Current Server", 375, function()
+        local success, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+        end)
+        if not success then
+            notify("Rejoin", "Could not rejoin: " .. tostring(err), 5)
+        else
+            notify("Rejoin", "Rejoin requested.")
+        end
+    end)
 
-	local stats = make("Frame", {
-		BackgroundColor3 = C.Background,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, 141),
-		Size = UDim2.new(1, -20, 0, 115),
-	}, page)
-	corner(stats, 8)
-
-	local playerCount = label(
-		stats, "Players in server: --",
-		UDim2.fromOffset(12, 7),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	local speedStat = label(
-		stats, "WalkSpeed: --",
-		UDim2.fromOffset(12, 33),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	local jumpStat = label(
-		stats, "JumpPower: --",
-		UDim2.fromOffset(12, 59),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	label(
-		stats, "Place ID: " .. tostring(game.PlaceId),
-		UDim2.fromOffset(12, 85),
-		UDim2.new(1, -24, 0, 20), 10, C.Muted
-	)
-
-	section(page, "Quick actions", 268)
-
-	action(page, "Refresh Dashboard", 294, function()
-		playerCount.Text = "Players in server: " .. #Players:GetPlayers()
-		notify("Dashboard", "Statistics refreshed.")
-	end)
-
-	action(page, "Reset Character", 333, function()
-		local hum = myHumanoid()
-		if hum then
-			hum.Health = 0
-			notify("Character", "Reset requested.")
-		end
-	end)
-
-	task.spawn(function()
-		while gui.Parent do
-			local hum = myHumanoid()
-
-			playerCount.Text = "Players in server: " .. #Players:GetPlayers()
-			speedStat.Text = "WalkSpeed: " .. (hum and tostring(math.floor(hum.WalkSpeed)) or "--")
-			jumpStat.Text = "JumpPower: " .. (hum and tostring(math.floor(hum.JumpPower)) or "--")
-
-			task.wait(1)
-		end
-	end)
+    task.spawn(function()
+        while gui.Parent do
+            local humanoid = getHumanoid()
+            playerCount.Text = "Players in server: " .. #Players:GetPlayers()
+            speedStat.Text = "WalkSpeed: " .. (humanoid and tostring(math.floor(humanoid.WalkSpeed)) or "--")
+            jumpStat.Text = "JumpPower: " .. (humanoid and tostring(math.floor(humanoid.JumpPower)) or "--")
+            task.wait(1)
+        end
+    end)
 end
 
--- PLAYER
+--========================================================
+-- PLAYER PAGE: DRAGGABLE SLIDERS
+--========================================================
+local walkSlider
+local jumpSlider
+local runSpeedSlider
 do
-	local page = pages.Player
+    local page = pages.Player
+    addSection(page, "Movement tuning", 9)
+    walkSlider = makeSlider(page, "WalkSpeed", 36, 8, 200, walkSpeedValue, function(value)
+        walkSpeedValue = value
+        applyMovement()
+    end)
+    jumpSlider = makeSlider(page, "JumpPower", 108, 25, 250, jumpPowerValue, function(value)
+        jumpPowerValue = value
+        applyMovement()
+    end)
+    runSpeedSlider = makeSlider(page, "Run Speed", 180, 16, 250, runSpeedValue, function(value)
+        runSpeedValue = value
+        applyMovement()
+    end)
 
-	section(page, "Movement", 8)
-
-	local speedLabel = label(
-		page, "WalkSpeed: 16",
-		UDim2.fromOffset(12, 32),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	button(page, "-10", UDim2.fromOffset(10, 58), UDim2.fromOffset(75, 30), function()
-		local hum = myHumanoid()
-		if hum then
-			hum.WalkSpeed = math.max(0, hum.WalkSpeed - 10)
-			speedLabel.Text = "WalkSpeed: " .. hum.WalkSpeed
-		end
-	end)
-
-	button(page, "+10", UDim2.fromOffset(92, 58), UDim2.fromOffset(75, 30), function()
-		local hum = myHumanoid()
-		if hum then
-			hum.WalkSpeed = math.min(100, hum.WalkSpeed + 10)
-			speedLabel.Text = "WalkSpeed: " .. hum.WalkSpeed
-		end
-	end)
-
-	local jumpLabel = label(
-		page, "JumpPower: 50",
-		UDim2.fromOffset(12, 99),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	button(page, "-5", UDim2.fromOffset(10, 125), UDim2.fromOffset(75, 30), function()
-		local hum = myHumanoid()
-		if hum then
-			hum.UseJumpPower = true
-			hum.JumpPower = math.max(0, hum.JumpPower - 5)
-			jumpLabel.Text = "JumpPower: " .. hum.JumpPower
-		end
-	end)
-
-	button(page, "+5", UDim2.fromOffset(92, 125), UDim2.fromOffset(75, 30), function()
-		local hum = myHumanoid()
-		if hum then
-			hum.UseJumpPower = true
-			hum.JumpPower = math.min(200, hum.JumpPower + 5)
-			jumpLabel.Text = "JumpPower: " .. hum.JumpPower
-		end
-	end)
-
-	action(page, "Reset Movement", 165, function()
-		local hum = myHumanoid()
-		if hum then
-			hum.WalkSpeed = 16
-			hum.UseJumpPower = true
-			hum.JumpPower = 50
-			speedLabel.Text = "WalkSpeed: 16"
-			jumpLabel.Text = "JumpPower: 50"
-			notify("Movement", "Movement reset.")
-		end
-	end)
-
-	section(page, "Movement utilities", 207)
-
-	local flyStatus = label(
-		page, "Fly: OFF | Speed: 50",
-		UDim2.fromOffset(12, 232),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	action(page, "Toggle Fly", 258, function()
-		toggleFly()
-	end)
-
-	action(page, "Cycle Fly Speed", 297, function()
-		flySpeed = flySpeed == 25 and 50 or (flySpeed == 50 and 100 or 25)
-		notify("Fly speed", "Speed: " .. flySpeed)
-	end)
-
-	local noclipStatus = label(
-		page, "Noclip: OFF",
-		UDim2.fromOffset(12, 336),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	action(page, "Toggle Noclip", 362, function()
-		setNoclip(not noclipEnabled)
-	end)
-
-	task.spawn(function()
-		while gui.Parent do
-			flyStatus.Text = "Fly: " .. (flyEnabled and "ON" or "OFF") .. " | Speed: " .. flySpeed
-			noclipStatus.Text = "Noclip: " .. (noclipEnabled and "ON" or "OFF")
-			task.wait(0.25)
-		end
-	end)
+    addSection(page, "Movement actions", 257)
+    addAction(page, "Reset Movement Values", 284, function()
+        walkSlider.setValue(16)
+        jumpSlider.setValue(80)
+        runSpeedSlider.setValue(90)
+        notify("Movement", "Walk, run and jump values reset.")
+    end)
+    addLabel(page, "Drag a slider or click its track. Higher values make movement faster but may be harder to control.",
+        UDim2.fromOffset(14, 329), UDim2.new(1, -28, 0, 42), 10, COLORS.Muted)
 end
 
--- SPECTATOR
-local playerList
-local selectedLabel
+--========================================================
+-- ABILITIES PAGE
+--========================================================
+local flyToggle
+local infiniteJumpToggle
+local noclipToggle
+local flySlider
+do
+    local page = pages.Abilities
+    addSection(page, "Movement abilities", 9)
 
-local function refreshPlayers()
-	if not playerList then return end
+    flyToggle = makeToggle(page, "Fly", 36, false, function(value, silent)
+        flyEnabled = value
+        if value then
+            startFly()
+            if not silent then notify("Fly", "Enabled. WASD moves, Space rises, Left Ctrl descends.") end
+        else
+            stopFly()
+            if not silent then notify("Fly", "Disabled.") end
+        end
+    end)
 
-	for _, child in ipairs(playerList:GetChildren()) do
-		if child:IsA("TextButton") then
-			child:Destroy()
-		end
-	end
+    flySlider = makeSlider(page, "Fly Speed", 80, 20, 300, flySpeedValue, function(value)
+        flySpeedValue = value
+    end)
 
-	local y = 4
+    infiniteJumpToggle = makeToggle(page, "Infinite Jump", 153, false, function(value, silent)
+        infiniteJumpEnabled = value
+        if not silent then notify("Infinite jump", value and "Enabled." or "Disabled.") end
+    end)
 
-	for _, target in ipairs(Players:GetPlayers()) do
-		if target ~= player then
-			local targetPlayer = target
+    noclipToggle = makeToggle(page, "Noclip", 197, false, function(value, silent)
+        setNoclip(value)
+        if not silent then notify("Noclip", value and "Enabled." or "Disabled.") end
+    end)
 
-			local b = button(
-				playerList,
-				targetPlayer.DisplayName .. "  @" .. targetPlayer.Name,
-				UDim2.fromOffset(4, y),
-				UDim2.new(1, -12, 0, 30),
-				function()
-					selectedPlayer = targetPlayer
-					selectedLabel.Text = "Selected: @" .. targetPlayer.Name
-					notify("Player selected", targetPlayer.DisplayName)
-				end
-			)
+    runToggle = makeToggle(page, "Run Boost", 241, false, function(value, silent)
+        runEnabled = value
+        applyMovement()
+        if not silent then notify("Run Boost", value and ("Run speed: " .. runSpeedValue) or "Normal walk speed restored.") end
+    end)
+end
 
-			b.TextXAlignment = Enum.TextXAlignment.Left
-			y += 36
-		end
-	end
+--========================================================
+-- SPECTATOR / PLAYER TELEPORT PAGE
+--========================================================
+local spectateNextPlayer
+local nextPlayerButton
 
-	playerList.CanvasSize = UDim2.fromOffset(0, y + 5)
+local function getTargetHumanoid(target)
+    local character = target and target.Character
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function refreshCameraSubject()
+    local camera = workspace.CurrentCamera
+    local humanoid = getHumanoid()
+    if camera and humanoid then
+        camera.CameraSubject = humanoid
+    end
+    spectating = false
+end
+
+local function spectateSelected()
+    -- P (or the UI button) is a true toggle: press once to watch,
+    -- press again to return the camera to your own character.
+    if spectating then
+        refreshCameraSubject()
+        notify("Spectator", "Returned to your character.")
+        return
+    end
+
+    if not selectedPlayer then
+        notify("Spectator", "Select a player first.")
+        return
+    end
+    local targetHumanoid = getTargetHumanoid(selectedPlayer)
+    if not targetHumanoid then
+        notify("Spectator", "That player's character is not ready.")
+        return
+    end
+    local camera = workspace.CurrentCamera
+    if camera then
+        camera.CameraSubject = targetHumanoid
+        spectating = true
+        notify("Spectator", "Now watching " .. selectedPlayer.DisplayName .. ". Press P again to return.")
+    end
+end
+
+local function teleportToSelected()
+    if not selectedPlayer then
+        notify("Teleport", "Select a player first.")
+        return
+    end
+    local targetRoot = selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local root = getRoot()
+    if not targetRoot or not root then
+        notify("Teleport", "A character is not ready.")
+        return
+    end
+    root.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
+    root.AssemblyLinearVelocity = Vector3.zero
+    notify("Teleport", "Moved near " .. selectedPlayer.DisplayName .. " locally.")
 end
 
 do
-	local page = pages.Spectator
+    local page = pages.Spectator
+    addSection(page, "Spectator / player teleport", 9)
+    selectedPlayerLabel = addLabel(page, "Selected player: none", UDim2.fromOffset(14, 31),
+        UDim2.new(1, -28, 0, 22), 10, COLORS.Muted)
+    addAction(page, "Refresh Player List", 57, function()
+        if refreshPlayerList then refreshPlayerList() end
+        notify("Players", "Player list refreshed.")
+    end)
 
-	section(page, "Player selector", 8)
+    playerList = make("ScrollingFrame", {
+        Name = "PlayerList",
+        BackgroundColor3 = COLORS.Background,
+        BorderSizePixel = 0,
+        Position = UDim2.fromOffset(12, 96),
+        Size = UDim2.new(1, -24, 0, 145),
+        CanvasSize = UDim2.fromOffset(0, 0),
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = COLORS.Purple,
+    }, page)
+    addCorner(playerList, 8)
 
-	selectedLabel = label(
-		page, "Selected: none",
-		UDim2.fromOffset(12, 31),
-		UDim2.new(1, -24, 0, 22), 10, C.Muted
-	)
+    refreshPlayerList = function()
+        if not playerList or not playerList.Parent then return end
+        for _, child in ipairs(playerList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        local y = 5
+        for _, target in ipairs(Players:GetPlayers()) do
+            if target ~= player then
+                local targetRef = target
+                local row = addButton(playerList,
+                    targetRef.DisplayName .. "  @" .. targetRef.Name,
+                    UDim2.fromOffset(5, y), UDim2.new(1, -14, 0, 29), function()
+                        selectedPlayer = targetRef
+                        selectedPlayerLabel.Text = "Selected player: " .. targetRef.DisplayName .. "  @" .. targetRef.Name
+                        notify("Player selected", targetRef.DisplayName)
+                    end, targetRef == selectedPlayer and COLORS.Purple or COLORS.Item)
+                row.TextXAlignment = Enum.TextXAlignment.Left
+                row:SetAttribute("NEXU_RestingColor", targetRef == selectedPlayer and COLORS.Purple or COLORS.Item)
+                y += 34
+            end
+        end
+        playerList.CanvasSize = UDim2.fromOffset(0, y + 4)
+        if not selectedPlayer or selectedPlayer.Parent ~= Players then
+            selectedPlayer = nil
+            selectedPlayerLabel.Text = "Selected player: none"
+        end
+    end
 
-	action(page, "Refresh Player List", 57, function()
-		refreshPlayers()
-		notify("Player list", "List refreshed.")
-	end)
-
-	playerList = make("ScrollingFrame", {
-		BackgroundColor3 = C.Background,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, 97),
-		Size = UDim2.new(1, -20, 0, 140),
-		CanvasSize = UDim2.fromOffset(0, 0),
-		ScrollBarThickness = 3,
-		ScrollBarImageColor3 = C.Purple,
-	}, page)
-	corner(playerList, 8)
-
-	action(page, "Spectate Selected", 247, function()
-		if not selectedPlayer then
-			notify("Spectator", "Select a player first.")
-			return
-		end
-
-		local hum = humanoidOf(selectedPlayer)
-		if hum then
-			workspace.CurrentCamera.CameraSubject = hum
-			notify("Spectator", "Spectating " .. selectedPlayer.Name)
-		else
-			notify("Spectator", "Target character not ready.")
-		end
-	end)
-
-	action(page, "Stop Spectating", 286, function()
-		local hum = myHumanoid()
-		if hum then
-			workspace.CurrentCamera.CameraSubject = hum
-		end
-		notify("Spectator", "Spectating stopped.")
-	end)
-
-	action(page, "Teleport to Selected", 325, function()
-		local root = myRoot()
-		local targetRoot = rootOf(selectedPlayer)
-
-		if root and targetRoot then
-			root.CFrame = targetRoot.CFrame * CFrame.new(3, 0, 0)
-			notify("Teleport", "Teleported near " .. selectedPlayer.Name)
-		else
-			notify("Teleport", "Select a player with a character.")
-		end
-	end)
-
-	refreshPlayers()
+    addAction(page, "Toggle Spectating (P)", 250, spectateSelected)
+    nextPlayerButton = addAction(page, "Next Player (" .. keybinds["Next Player"].Name .. ") — Select Only", 288, function()
+        if spectateNextPlayer then
+            spectateNextPlayer()
+        end
+    end)
+    addAction(page, "Teleport to Selected", 326, teleportToSelected)
+    addLabel(page, "Next Player changes your selection only. Press P to start or stop spectating the selected player. Player viewing is local; teleporting may be corrected by the server.",
+        UDim2.fromOffset(14, 366), UDim2.new(1, -28, 0, 66), 10, COLORS.Muted)
+    refreshPlayerList()
 end
 
-Players.PlayerAdded:Connect(function()
-	task.defer(refreshPlayers)
+-- Cycle to the next player alphabetically, wrap at the end, and select only.
+-- Spectating remains a separate action on the P key / Toggle Spectating button.
+spectateNextPlayer = function()
+    local candidates = {}
+    for _, target in ipairs(Players:GetPlayers()) do
+        if target ~= player then
+            table.insert(candidates, target)
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        return string.lower(a.Name) < string.lower(b.Name)
+    end)
+
+    if #candidates == 0 then
+        notify("Spectator", "No other players are in this server.")
+        return
+    end
+
+    local currentIndex = 0
+    for index, target in ipairs(candidates) do
+        if target == selectedPlayer then
+            currentIndex = index
+            break
+        end
+    end
+
+    local nextIndex = (currentIndex % #candidates) + 1
+    selectedPlayer = candidates[nextIndex]
+    if selectedPlayerLabel then
+        selectedPlayerLabel.Text = "Selected player: " .. selectedPlayer.DisplayName .. "  @" .. selectedPlayer.Name
+    end
+    if refreshPlayerList then
+        refreshPlayerList()
+    end
+
+    notify("Player selected", selectedPlayer.DisplayName .. " selected. Press " .. keybinds["Spectate Selected"].Name .. " to spectate.")
+end
+
+--========================================================
+-- LOCAL PLAYER VISUALS: CHAMS / NAME TAGS
+--========================================================
+local function clearPlayerVisuals()
+    for _, object in ipairs(playerHighlights) do
+        if object and object.Parent then object:Destroy() end
+    end
+    for _, object in ipairs(playerBillboards) do
+        if object and object.Parent then object:Destroy() end
+    end
+    table.clear(playerHighlights)
+    table.clear(playerBillboards)
+    table.clear(playerNameLabels)
+end
+
+local function refreshPlayerVisuals()
+    clearPlayerVisuals()
+    if not chamsEnabled and not nameTagsEnabled then return end
+
+    for _, target in ipairs(Players:GetPlayers()) do
+        if target ~= player and target.Character then
+            local character = target.Character
+            local root = character:FindFirstChild("HumanoidRootPart")
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+            if chamsEnabled and humanoid then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = "NEXU_LocalHighlight"
+                highlight.Adornee = character
+                highlight.FillColor = COLORS.Purple
+                highlight.OutlineColor = COLORS.PurpleLight
+                highlight.FillTransparency = 0.78
+                highlight.OutlineTransparency = 0.08
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Parent = character
+                table.insert(playerHighlights, highlight)
+            end
+
+            if nameTagsEnabled and root then
+                local billboard = Instance.new("BillboardGui")
+                billboard.Name = "NEXU_LocalNameTag"
+                billboard.Adornee = root
+                billboard.Size = UDim2.fromOffset(190, 30)
+                billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+                billboard.AlwaysOnTop = true
+                billboard.MaxDistance = 0 -- 0 means no distance limit
+                billboard.Parent = playerGui
+
+                local nameLabel = Instance.new("TextLabel")
+                nameLabel.Name = "Name"
+                nameLabel.BackgroundTransparency = 1
+                nameLabel.Size = UDim2.fromScale(1, 1)
+                nameLabel.Text = target.DisplayName .. "  @" .. target.Name
+                nameLabel.TextColor3 = COLORS.PurpleLight
+                nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+                nameLabel.TextStrokeTransparency = 0.45
+                nameLabel.Font = Enum.Font.GothamMedium
+                nameLabel.TextSize = 12
+                nameLabel.Parent = billboard
+                table.insert(playerBillboards, billboard)
+                table.insert(playerNameLabels, nameLabel)
+            end
+        end
+    end
+end
+
+do
+    local page = pages.Visuals
+    addSection(page, "Player visuals", 9)
+    addLabel(page, "These highlights and name tags are visible only to you. They refresh when players respawn.",
+        UDim2.fromOffset(14, 31), UDim2.new(1, -28, 0, 38), 10, COLORS.Muted)
+
+    chamsToggle = makeToggle(page, "Player Chams / Highlight", 76, false, function(value, silent)
+        chamsEnabled = value
+        refreshPlayerVisuals()
+        if not silent then notify("Player Chams", value and "Enabled locally." or "Disabled.") end
+    end)
+
+    nameTagsToggle = makeToggle(page, "Player Name Tags", 120, false, function(value, silent)
+        nameTagsEnabled = value
+        refreshPlayerVisuals()
+        if not silent then notify("Name Tags", value and "Enabled locally." or "Disabled.") end
+    end)
+
+    addAction(page, "Refresh Visuals", 169, function()
+        refreshPlayerVisuals()
+        notify("Player Visuals", "Visuals refreshed.")
+    end)
+
+    addLabel(page, "Chams use a light fill and clear outline so they are useful without overpowering the scene. Choose another accent in Settings to change their color.",
+        UDim2.fromOffset(14, 214), UDim2.new(1, -28, 0, 62), 10, COLORS.Muted)
+end
+
+--========================================================
+-- OTHER PAGE: CLICK TOOLS / SAVED LOCATIONS
+--========================================================
+local teleportClickToggle
+local destroyClickToggle
+do
+    local page = pages.Other
+    addSection(page, "Click tools", 9)
+
+    addLabel(page, "Enable one tool, then click the 3D world. Click-to-destroy no longer requires tags. Hide the menu for a clearer view.",
+        UDim2.fromOffset(14, 30), UDim2.new(1, -28, 0, 42), 10, COLORS.Muted)
+
+    teleportClickToggle = makeToggle(page, "Click-to-teleport", 77, false, function(value, silent)
+        clickTeleportEnabled = value
+        if value and clickDestroyEnabled then
+            if destroyClickToggle then destroyClickToggle.setValue(false, true) end
+        end
+        if not silent then
+            notify("Click-to-teleport", value and "Active: click a nearby surface." or "Disabled.")
+        end
+    end)
+
+    -- Declared here so the two click modes always switch each other off.
+    destroyClickToggle = makeToggle(page, "Click-to-destroy any object", 121, false, function(value, silent)
+        clickDestroyEnabled = value
+        if value and clickTeleportEnabled then
+            teleportClickToggle.setValue(false, true)
+        end
+        if not silent then
+            notify("Click-to-destroy", value and "Active: click any world object." or "Disabled.")
+        end
+    end)
+
+    addLabel(page, "Client-only: any clicked world part is removable; clicking a part inside a Model removes the nearest Model. Character models are protected. Other players/server state are unchanged.",
+        UDim2.fromOffset(14, 164), UDim2.new(1, -28, 0, 43), 10, COLORS.Muted)
+
+    addSection(page, "Saved positions", 213)
+    addLabel(page, "Each slot shows EMPTY or SAVED with the saved coordinates.",
+        UDim2.fromOffset(14, 233), UDim2.new(1, -28, 0, 18), 9, COLORS.Muted)
+
+    local function updateSavedPositionLabel(slot)
+        local statusLabel = savedPositionLabels[slot]
+        if not statusLabel then return end
+
+        local savedCFrame = savedPositions[slot]
+        if savedCFrame then
+            local position = savedCFrame.Position
+            statusLabel.Text = string.format(
+                "Slot %d   ✓ SAVED   •   (%d, %d, %d)",
+                slot,
+                math.floor(position.X + 0.5),
+                math.floor(position.Y + 0.5),
+                math.floor(position.Z + 0.5)
+            )
+            statusLabel.TextColor3 = COLORS.Green
+        else
+            statusLabel.Text = string.format("Slot %d   •   EMPTY", slot)
+            statusLabel.TextColor3 = COLORS.Muted
+        end
+    end
+
+    for slot = 1, 3 do
+        local thisSlot = slot
+        local y = 254 + (slot - 1) * 55
+        savedPositionLabels[thisSlot] = addLabel(page, "Slot " .. slot .. "   •   EMPTY",
+            UDim2.fromOffset(14, y), UDim2.new(1, -28, 0, 20), 10, COLORS.Muted, Enum.Font.GothamMedium)
+        addButton(page, "SAVE", UDim2.fromOffset(14, y + 21),
+            UDim2.new(0.47, -6, 0, 28), function()
+                local root = getRoot()
+                if root then
+                    savedPositions[thisSlot] = root.CFrame
+                    updateSavedPositionLabel(thisSlot)
+                    notify("Saved position", "Slot " .. thisSlot .. " saved.")
+                else
+                    notify("Saved position", "Character is not ready.")
+                end
+            end)
+        addButton(page, "GO", UDim2.new(0.5, 1, 0, y + 21),
+            UDim2.new(0.47, -6, 0, 28), function()
+                local root = getRoot()
+                if root and savedPositions[thisSlot] then
+                    root.CFrame = savedPositions[thisSlot]
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    notify("Saved position", "Moved to slot " .. thisSlot .. ".")
+                else
+                    notify("Saved position", "Slot " .. thisSlot .. " is empty. Press SAVE first.")
+                end
+            end)
+        updateSavedPositionLabel(thisSlot)
+    end
+
+end
+
+--========================================================
+-- KEYBINDS PAGE
+--========================================================
+local keybindButtons = {}
+local keybindStatusLabel
+local keybindOrder = {
+    { name = "Menu Toggle", description = "Show / hide menu" },
+    { name = "Fly", description = "Toggle flight" },
+    { name = "Noclip", description = "Toggle noclip" },
+    { name = "Infinite Jump", description = "Toggle infinite jump" },
+    { name = "Click Teleport", description = "Toggle click-to-teleport" },
+    { name = "Click Destroy", description = "Toggle click-to-destroy" },
+    { name = "Run Boost", description = "Toggle fast running" },
+    { name = "Spectate Selected", description = "Toggle watching selected player" },
+    { name = "Next Player", description = "Select next player (doesn't spectate)" },
+    { name = "Teleport to Selected", description = "Move near selected player" },
+    { name = "Toggle Chams", description = "Toggle player highlights" },
+    { name = "Toggle Name Tags", description = "Toggle player name tags" },
+}
+
+local function refreshKeybindLabels()
+    for actionName, keyButton in pairs(keybindButtons) do
+        keyButton.Text = keybinds[actionName].Name
+        keyButton:SetAttribute("NEXU_RestingColor", COLORS.Panel)
+    end
+    if nextPlayerButton then
+        nextPlayerButton.Text = "Next Player (" .. keybinds["Next Player"].Name .. ") — Select Only"
+    end
+    keyHint.Text = string.upper(keybinds["Menu Toggle"].Name) .. "  •  SHOW / HIDE"
+end
+
+local function beginKeybindCapture(actionName)
+    waitingForKeybind = actionName
+    if keybindStatusLabel then
+        keybindStatusLabel.Text = "Press a key for " .. actionName .. " (Esc cancels)."
+    end
+    notify("Keybinds", "Press a key for " .. actionName .. ".")
+end
+
+do
+    local page = pages.Keybinds
+    addSection(page, "Configure shortcuts", 9)
+    addLabel(page, "Choose a button, then press the key you want to assign. Each action must use a unique key.",
+        UDim2.fromOffset(14, 31), UDim2.new(1, -28, 0, 36), 10, COLORS.Muted)
+
+    for index, definition in ipairs(keybindOrder) do
+        local y = 72 + (index - 1) * 47
+        local row = make("Frame", {
+            BackgroundColor3 = COLORS.Item,
+            BorderSizePixel = 0,
+            Position = UDim2.fromOffset(12, y),
+            Size = UDim2.new(1, -24, 0, 39),
+        }, page)
+        addCorner(row, 7)
+        addLabel(row, definition.description,
+            UDim2.fromOffset(10, 0), UDim2.new(1, -108, 1, 0), 10, COLORS.Text, Enum.Font.GothamMedium)
+
+        local keyButton = addButton(row, keybinds[definition.name].Name,
+            UDim2.new(1, -91, 0.5, -13), UDim2.fromOffset(80, 26), function()
+                beginKeybindCapture(definition.name)
+            end, COLORS.Panel)
+        keyButton:SetAttribute("NEXU_RestingColor", COLORS.Panel)
+        keybindButtons[definition.name] = keyButton
+    end
+
+    addAction(page, "Restore Default Keybinds", 646, function()
+        for actionName, keyCode in pairs(DEFAULT_KEYBINDS) do
+            keybinds[actionName] = keyCode
+        end
+        waitingForKeybind = nil
+        refreshKeybindLabels()
+        if keybindStatusLabel then keybindStatusLabel.Text = "Default keybinds restored." end
+        notify("Keybinds", "Defaults restored.")
+    end)
+
+    keybindStatusLabel = addLabel(page, "No keybind change in progress.",
+        UDim2.fromOffset(14, 685), UDim2.new(1, -28, 0, 34), 10, COLORS.PurpleLight, Enum.Font.GothamMedium)
+    registerAccentLabel(keybindStatusLabel)
+    addLabel(page, "Tip: if the menu is hidden, your feature shortcuts still work.",
+        UDim2.fromOffset(14, 723), UDim2.new(1, -28, 0, 30), 10, COLORS.Muted)
+end
+
+--========================================================
+-- SETTINGS PAGE: VISUAL COLOR PICKER
+--========================================================
+local function applyAccent(index, silent)
+    accentIndex = math.clamp(index, 1, #ACCENTS)
+    local accent = ACCENTS[accentIndex].color
+    COLORS.Purple = accent
+    COLORS.PurpleLight = accent:Lerp(Color3.new(1, 1, 1), 0.30)
+
+    mainStroke.Color = accent
+    logo.BackgroundColor3 = accent
+    keyHint.TextColor3 = COLORS.PurpleLight
+    menuTitleLabel.TextColor3 = COLORS.PurpleLight
+    logoText.TextColor3 = Color3.new(1, 1, 1)
+
+    for _, labelObject in ipairs(accentLabels) do
+        if labelObject and labelObject.Parent then
+            labelObject.TextColor3 = COLORS.PurpleLight
+        end
+    end
+    for _, strokeObject in ipairs(accentStrokes) do
+        if strokeObject and strokeObject.Parent then
+            strokeObject.Color = accent
+        end
+    end
+    for name, tab in pairs(tabButtons) do
+        local resting = name == currentTab and accent or COLORS.Item
+        tab:SetAttribute("NEXU_RestingColor", resting)
+        tab.BackgroundColor3 = resting
+    end
+    for _, pageObject in pairs(pages) do
+        pageObject.ScrollBarImageColor3 = accent
+    end
+    for _, control in ipairs(sliderControls) do
+        if control.fill then control.fill.BackgroundColor3 = accent end
+        if control.knobStroke then control.knobStroke.Color = accent end
+    end
+    for _, control in ipairs(toggleControls) do
+        if control.button then
+            local resting = control.value and accent or COLORS.Panel
+            control.button:SetAttribute("NEXU_RestingColor", resting)
+            control.button.BackgroundColor3 = resting
+        end
+    end
+    for _, highlight in ipairs(playerHighlights) do
+        if highlight and highlight.Parent then
+            highlight.FillColor = accent
+            highlight.OutlineColor = COLORS.PurpleLight
+        end
+    end
+    for _, nameLabel in ipairs(playerNameLabels) do
+        if nameLabel and nameLabel.Parent then nameLabel.TextColor3 = COLORS.PurpleLight end
+    end
+    for indexNumber, entry in ipairs(accentSwatches) do
+        if entry.stroke and entry.stroke.Parent then
+            entry.stroke.Color = indexNumber == accentIndex and Color3.fromRGB(225, 220, 240) or Color3.fromRGB(75, 66, 91)
+            entry.stroke.Thickness = indexNumber == accentIndex and 1.5 or 1
+            entry.stroke.Transparency = indexNumber == accentIndex and 0.08 or 0.38
+        end
+        if entry.button and entry.button.Parent then
+            entry.button.Text = ACCENTS[indexNumber].name
+            entry.button.Font = Enum.Font.GothamMedium
+        end
+    end
+
+    if not silent then
+        notify("Theme", ACCENTS[accentIndex].name .. " applied.")
+    end
+end
+
+do
+    local page = pages.Settings
+    addSection(page, "Interface", 9)
+
+    local scaleLabel = addLabel(page, "UI Scale: 100%", UDim2.fromOffset(14, 35),
+        UDim2.new(1, -28, 0, 22), 11)
+    addButton(page, "−", UDim2.fromOffset(14, 61), UDim2.fromOffset(70, 30), function()
+        uiScaleValue = math.max(0.75, math.floor((uiScaleValue - 0.05) * 100 + 0.5) / 100)
+        uiScale.Scale = uiScaleValue
+        scaleLabel.Text = "UI Scale: " .. math.floor(uiScaleValue * 100) .. "%"
+    end)
+    addButton(page, "+", UDim2.fromOffset(91, 61), UDim2.fromOffset(70, 30), function()
+        uiScaleValue = math.min(1.2, math.floor((uiScaleValue + 0.05) * 100 + 0.5) / 100)
+        uiScale.Scale = uiScaleValue
+        scaleLabel.Text = "UI Scale: " .. math.floor(uiScaleValue * 100) .. "%"
+    end)
+
+    addSection(page, "Accent color palette", 105)
+    addLabel(page, "Pick a swatch to recolor the outline, tabs, toggles, sliders and highlights.",
+        UDim2.fromOffset(14, 128), UDim2.new(1, -28, 0, 25), 10, COLORS.Muted)
+
+    for index, accentEntry in ipairs(ACCENTS) do
+        local col = (index - 1) % 4
+        local row = math.floor((index - 1) / 4)
+        local swatch = make("TextButton", {
+            Position = UDim2.fromOffset(14 + col * 119, 158 + row * 56),
+            Size = UDim2.fromOffset(108, 43),
+            BackgroundColor3 = accentEntry.color,
+            BorderSizePixel = 0,
+            Text = accentEntry.name,
+            TextColor3 = Color3.new(1, 1, 1),
+            Font = Enum.Font.GothamMedium,
+            TextSize = 9,
+            TextWrapped = true,
+            AutoButtonColor = false,
+        }, page)
+        addCorner(swatch, 8)
+        local swatchStroke = make("UIStroke", {
+            Color = index == accentIndex and Color3.fromRGB(225, 220, 240) or Color3.fromRGB(75, 66, 91),
+            Thickness = index == accentIndex and 1.5 or 1,
+            Transparency = index == accentIndex and 0.08 or 0.38,
+        }, swatch)
+        table.insert(accentSwatches, { button = swatch, stroke = swatchStroke })
+        swatch.MouseEnter:Connect(function()
+            TweenService:Create(swatch, TweenInfo.new(0.1), {
+                Size = UDim2.fromOffset(110, 45),
+            }):Play()
+        end)
+        swatch.MouseLeave:Connect(function()
+            TweenService:Create(swatch, TweenInfo.new(0.1), {
+                Size = UDim2.fromOffset(108, 43),
+            }):Play()
+        end)
+        swatch.Activated:Connect(function()
+            applyAccent(index, false)
+        end)
+    end
+
+    addSection(page, "About", 278)
+    addLabel(page,
+        "NEXU is a client-only menu. Click-to-destroy removes the clicked world object locally; the server may restore it. Character models are protected from click-to-destroy.",
+        UDim2.fromOffset(14, 304), UDim2.new(1, -28, 0, 66), 10, COLORS.Muted)
+
+    addAction(page, "Close Menu", 388, function()
+        menuOpen = false
+        main.Visible = false
+    end)
+end
+
+--========================================================
+-- IN-WORLD CLICK HANDLER
+--========================================================
+local function mouseOverMenu()
+    if not main.Visible then return false end
+    local point = UserInputService:GetMouseLocation()
+    local pos = main.AbsolutePosition
+    local size = main.AbsoluteSize
+    return point.X >= pos.X and point.X <= pos.X + size.X
+        and point.Y >= pos.Y and point.Y <= pos.Y + size.Y
+end
+
+local function runKeybindAction(actionName)
+    if actionName == "Menu Toggle" then
+        menuOpen = not menuOpen
+        main.Visible = menuOpen
+    elseif actionName == "Fly" and flyToggle then
+        flyToggle.setValue(not flyToggle.value)
+    elseif actionName == "Noclip" and noclipToggle then
+        noclipToggle.setValue(not noclipToggle.value)
+    elseif actionName == "Infinite Jump" and infiniteJumpToggle then
+        infiniteJumpToggle.setValue(not infiniteJumpToggle.value)
+    elseif actionName == "Click Teleport" and teleportClickToggle then
+        teleportClickToggle.setValue(not teleportClickToggle.value)
+    elseif actionName == "Click Destroy" and destroyClickToggle then
+        destroyClickToggle.setValue(not destroyClickToggle.value)
+    elseif actionName == "Run Boost" and runToggle then
+        runToggle.setValue(not runToggle.value)
+    elseif actionName == "Spectate Selected" then
+        spectateSelected()
+    elseif actionName == "Next Player" and spectateNextPlayer then
+        spectateNextPlayer()
+    elseif actionName == "Teleport to Selected" then
+        teleportToSelected()
+    elseif actionName == "Toggle Chams" and chamsToggle then
+        chamsToggle.setValue(not chamsToggle.value)
+    elseif actionName == "Toggle Name Tags" and nameTagsToggle then
+        nameTagsToggle.setValue(not nameTagsToggle.value)
+    end
+end
+
+local function captureKeybind(input)
+    local actionName = waitingForKeybind
+    if not actionName then return false end
+
+    if input.KeyCode == Enum.KeyCode.Escape then
+        waitingForKeybind = nil
+        if keybindStatusLabel then keybindStatusLabel.Text = "Keybind change cancelled." end
+        return true
+    end
+    if input.KeyCode == Enum.KeyCode.Unknown then return true end
+
+    for otherAction, assignedKey in pairs(keybinds) do
+        if otherAction ~= actionName and assignedKey == input.KeyCode then
+            if keybindStatusLabel then
+                keybindStatusLabel.Text = input.KeyCode.Name .. " is already assigned to " .. otherAction .. ". Choose another key."
+            end
+            notify("Keybind conflict", input.KeyCode.Name .. " is already used by " .. otherAction .. ".")
+            return true
+        end
+    end
+
+    keybinds[actionName] = input.KeyCode
+    waitingForKeybind = nil
+    refreshKeybindLabels()
+    if keybindStatusLabel then
+        keybindStatusLabel.Text = actionName .. " set to " .. input.KeyCode.Name .. "."
+    end
+    notify("Keybind updated", actionName .. ": " .. input.KeyCode.Name)
+    return true
+end
+
+local function playDestroyEffect(position)
+    -- Cosmetic particle burst only; it does not apply blast damage or force.
+    local anchor = Instance.new("Part")
+    anchor.Name = "NEXU_DestroyEffect"
+    anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+    anchor.CFrame = CFrame.new(position)
+    anchor.Anchored = true
+    anchor.CanCollide = false
+    anchor.CanTouch = false
+    anchor.CanQuery = false
+    anchor.Transparency = 1
+    anchor.Parent = workspace
+
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "NEXU_ExplosionAttachment"
+    attachment.Parent = anchor
+
+    local particles = Instance.new("ParticleEmitter")
+    particles.Name = "NEXU_ExplosionParticles"
+    particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    particles.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, COLORS.Purple),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 190, 95)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 245, 220)),
+    })
+    particles.LightEmission = 0.8
+    particles.Lifetime = NumberRange.new(0.35, 0.7)
+    particles.Speed = NumberRange.new(10, 22)
+    particles.SpreadAngle = Vector2.new(180, 180)
+    particles.Rotation = NumberRange.new(0, 360)
+    particles.RotSpeed = NumberRange.new(-180, 180)
+    particles.Acceleration = Vector3.new(0, -18, 0)
+    particles.Drag = 4
+    particles.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.65),
+        NumberSequenceKeypoint.new(0.35, 0.4),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    particles.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.05),
+        NumberSequenceKeypoint.new(0.7, 0.15),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    particles.Enabled = false
+    particles.Parent = attachment
+    particles:Emit(32)
+
+    Debris:AddItem(anchor, 1.5)
+end
+
+local function findLocalDestroyTarget(hit)
+    if not hit or not hit:IsA("BasePart") or not hit:IsDescendantOf(workspace) then
+        return nil, "Click a part in the 3D world."
+    end
+
+    local character = player.Character
+    if character and hit:IsDescendantOf(character) then
+        return nil, "Your character is protected."
+    end
+
+    local current = hit
+    while current and current ~= workspace do
+        if current:IsA("Model") then
+            if current:FindFirstChildOfClass("Humanoid") then
+                return nil, "Character and NPC models are protected."
+            end
+            return current
+        end
+        current = current.Parent
+    end
+
+    return hit
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if waitingForKeybind then
+            captureKeybind(input)
+            return
+        end
+
+        if not gameProcessed then
+            for actionName, keyCode in pairs(keybinds) do
+                if input.KeyCode == keyCode then
+                    runKeybindAction(actionName)
+                    return
+                end
+            end
+        end
+        return
+    end
+
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    if gameProcessed or mouseOverMenu() then return end
+
+    if clickTeleportEnabled then
+        local target = mouse.Target
+        if not target then
+            notify("Click-to-teleport", "Click a surface in the world.")
+            return
+        end
+
+        local root = getRoot()
+        local humanoid = getHumanoid()
+        local hitPosition = mouse.Hit.Position
+        if not root or not humanoid then
+            notify("Click-to-teleport", "Your character is not ready.")
+            return
+        end
+        if (hitPosition - root.Position).Magnitude > 250 then
+            notify("Click-to-teleport", "That location is too far away (250 studs max).")
+            return
+        end
+
+        local destination = hitPosition + Vector3.new(0, math.max(3, humanoid.HipHeight + 2), 0)
+        root.CFrame = CFrame.new(destination, destination + root.CFrame.LookVector)
+        root.AssemblyLinearVelocity = Vector3.zero
+        notify("Click-to-teleport", "Moved locally. The server may correct this position.")
+
+    elseif clickDestroyEnabled then
+        local target = mouse.Target
+        if not target then
+            notify("Click-to-destroy", "Click a part in the world.")
+            return
+        end
+
+        local destroyTarget, reason = findLocalDestroyTarget(target)
+        if not destroyTarget then
+            notify("Click-to-destroy", reason or "That object cannot be removed.")
+            return
+        end
+
+        local targetName = destroyTarget.Name
+        local destroyPosition
+        if destroyTarget:IsA("Model") then
+            destroyPosition = destroyTarget:GetPivot().Position
+        else
+            destroyPosition = destroyTarget.Position
+        end
+
+        playDestroyEffect(destroyPosition)
+        destroyTarget:Destroy()
+        notify("Click-to-destroy", "Removed " .. targetName .. " locally.")
+    end
 end)
 
-Players.PlayerRemoving:Connect(function(leaving)
-	if selectedPlayer == leaving then
-		selectedPlayer = nil
-		if selectedLabel then
-			selectedLabel.Text = "Selected: none"
-		end
-	end
-	task.defer(refreshPlayers)
+-- Infinite jump: ordinary jump works on the ground; this adds another jump in air.
+UserInputService.JumpRequest:Connect(function()
+    if not infiniteJumpEnabled then return end
+    local humanoid = getHumanoid()
+    if humanoid and humanoid.Health > 0
+        and humanoid.FloorMaterial == Enum.Material.Air then
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
 end)
 
--- WORLD VISUALS
-local function clearHighlights()
-	for _, obj in ipairs(highlights) do
-		if obj and obj.Parent then obj:Destroy() end
-	end
-	table.clear(highlights)
+--========================================================
+-- DRAG THE WINDOW FROM THE HEADER
+--========================================================
+local draggingWindow = false
+local dragInput = nil
+local dragStart = nil
+local startPosition = nil
+
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingWindow = true
+        dragStart = input.Position
+        startPosition = main.Position
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingWindow and startPosition and dragStart then
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(
+                startPosition.X.Scale, startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale, startPosition.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingWindow = false
+        dragInput = nil
+    end
+end)
+
+-- Keep the spectator list and local player visuals current as players join/leave.
+local function hookOtherPlayer(target)
+    target.CharacterAdded:Connect(function()
+        task.wait(0.4)
+        if refreshPlayerList then refreshPlayerList() end
+        refreshPlayerVisuals()
+    end)
 end
 
-local function clearTags()
-	for _, obj in ipairs(nameTags) do
-		if obj and obj.Parent then obj:Destroy() end
-	end
-	table.clear(nameTags)
+for _, target in ipairs(Players:GetPlayers()) do
+    if target ~= player then hookOtherPlayer(target) end
 end
 
-local function applyHighlights()
-	clearHighlights()
-	if not chamsEnabled then return end
-
-	for _, target in ipairs(Players:GetPlayers()) do
-		if target ~= player and target.Character then
-			local h = make("Highlight", {
-				Name = "NEXU_Highlight",
-				Adornee = target.Character,
-				FillColor = C.Purple,
-				OutlineColor = C.PurpleLight,
-				FillTransparency = 0.55,
-				OutlineTransparency = 0,
-				DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-			}, target.Character)
-
-			table.insert(highlights, h)
-		end
-	end
-end
-
-local function applyTags()
-	clearTags()
-	if not tagsEnabled then return end
-
-	for _, target in ipairs(Players:GetPlayers()) do
-		if target ~= player and target.Character then
-			local root = rootOf(target)
-
-			if root then
-				local tag = make("BillboardGui", {
-					Name = "NEXU_NameTag",
-					Adornee = root,
-					Size = UDim2.fromOffset(200, 35),
-					StudsOffset = Vector3.new(0, 3, 0),
-					AlwaysOnTop = true,
-					MaxDistance = 100000,
-				}, root)
-
-				local text = make("TextLabel", {
-					BackgroundTransparency = 1,
-					Size = UDim2.fromScale(1, 1),
-					Text = target.DisplayName .. "  @" .. target.Name,
-					TextColor3 = C.PurpleLight,
-					TextStrokeTransparency = 0.35,
-					TextStrokeColor3 = Color3.new(0, 0, 0),
-					Font = Enum.Font.GothamBold,
-					TextSize = 12,
-				}, tag)
-
-				table.insert(nameTags, tag)
-			end
-		end
-	end
-end
-
-local function makeToggle(parent, text, y, initial, callback)
-	local row = make("Frame", {
-		BackgroundColor3 = C.Item,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, y),
-		Size = UDim2.new(1, -20, 0, 35),
-	}, parent)
-	corner(row, 7)
-
-	label(
-		row, text,
-		UDim2.fromOffset(10, 0),
-		UDim2.new(1, -80, 1, 0), 11
-	)
-
-	local active = initial
-
-	local toggleButton = button(
-		row,
-		active and "ON" or "OFF",
-		UDim2.new(1, -62, 0.5, -12),
-		UDim2.fromOffset(52, 24),
-		nil,
-		active and C.Purple or C.Panel
-	)
-
-	local function setValue(value)
-		active = value
-		toggleButton.Text = active and "ON" or "OFF"
-		toggleButton.BackgroundColor3 = active and C.Purple or C.Panel
-		callback(active)
-	end
-
-	toggleButton.Activated:Connect(function()
-		setValue(not active)
-	end)
-
-	return setValue
-end
-
-do
-	local page = pages.World
-
-	section(page, "Visual tools", 8)
-
-	makeToggle(page, "Player Chams / Highlight", 35, false, function(value)
-		chamsEnabled = value
-		applyHighlights()
-		notify("Chams", value and "Enabled." or "Disabled.")
-	end)
-
-	makeToggle(page, "Player Name Tags", 78, false, function(value)
-		tagsEnabled = value
-		applyTags()
-		notify("Name tags", value and "Enabled." or "Disabled.")
-	end)
-
-	section(page, "Saved positions", 127)
-
-	for slot = 1, 3 do
-		local thisSlot = slot
-		local y = 153 + (slot - 1) * 69
-
-		label(
-			page, "Position slot " .. slot,
-			UDim2.fromOffset(12, y),
-			UDim2.new(1, -24, 0, 20), 11
-		)
-
-		button(
-			page, "SAVE",
-			UDim2.fromOffset(10, y + 23),
-			UDim2.new(0.47, -5, 0, 30),
-			function()
-				local root = myRoot()
-				if root then
-					savedPositions[thisSlot] = root.CFrame
-					notify("Position saved", "Slot " .. thisSlot .. " saved.")
-				else
-					notify("Position", "Character not ready.")
-				end
-			end
-		)
-
-		button(
-			page, "GO",
-			UDim2.new(0.5, 2, 0, y + 23),
-			UDim2.new(0.47, -5, 0, 30),
-			function()
-				local root = myRoot()
-				if root and savedPositions[thisSlot] then
-					root.CFrame = savedPositions[thisSlot]
-					notify("Position", "Moved to slot " .. thisSlot .. ".")
-				else
-					notify("Position", "Save a position first.")
-				end
-			end
-		)
-	end
-
-	action(page, "Rejoin Server", 381, function()
-		notify("Rejoin", "Attempting to reconnect...")
-		task.wait(0.5)
-
-		local success, err = pcall(function()
-			TeleportService:Teleport(game.PlaceId, player)
-		end)
-
-		if not success then
-			notify("Rejoin failed", tostring(err), 5)
-		end
-	end)
-end
-
--- SETTINGS
-local scaleLabel
-local transparencyLabel
-
--- Theme updater
-local function refreshTheme()
-	C.Purple = accentColors[accentIndex]
-	C.PurpleLight = C.Purple:Lerp(Color3.new(1, 1, 1), 0.28)
-
-	mainStroke.Color = C.Purple
-	logo.BackgroundColor3 = C.Purple
-	logoStroke.Color = C.PurpleLight
-
-	for _, entry in ipairs(themeButtons) do
-		local obj = entry.object
-
-		if obj and obj.Parent then
-			if entry.role == "selectedTab" then
-				obj.BackgroundColor3 = C.Purple
-			elseif entry.role == "tab" then
-				obj.BackgroundColor3 = entry.baseColor
-			elseif entry.role == "accentButton" then
-				obj.BackgroundColor3 = C.Purple
-			end
-		end
-	end
-
-	for _, entry in ipairs(themeLabels) do
-		local obj = entry.object
-
-		if obj and obj.Parent then
-			if entry.role == "accent" then
-				obj.TextColor3 = C.Purple
-			elseif entry.role == "accentLight" then
-				obj.TextColor3 = C.PurpleLight
-			end
-		end
-	end
-
-	for _, obj in ipairs(themeStrokes) do
-		if obj and obj.Parent then
-			obj.Color = C.Purple
-		end
-	end
-
-	for _, item in ipairs(highlights) do
-		if item and item.Parent then
-			item.FillColor = C.Purple
-			item.OutlineColor = C.PurpleLight
-		end
-	end
-
-	for _, tag in ipairs(nameTags) do
-		local text = tag:FindFirstChildWhichIsA("TextLabel")
-		if text then
-			text.TextColor3 = C.PurpleLight
-		end
-	end
-
-	for _, page in pairs(pages) do
-		page.ScrollBarImageColor3 = C.Purple
-	end
-
-	notify("Theme", accentNames[accentIndex] .. " applied.")
-end
-
-do
-	local page = pages.Settings
-
-	section(page, "Appearance", 8)
-
-	-- UI SCALE (moved up after removing Change Accent Color)
-	scaleLabel = label(
-		page, "UI Scale: 100%",
-		UDim2.fromOffset(12, 34),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	button(page, "-", UDim2.fromOffset(10, 61), UDim2.fromOffset(75, 30), function()
-		uiScaleValue = math.max(0.75, uiScaleValue - 0.05)
-		uiScale.Scale = uiScaleValue
-		scaleLabel.Text = "UI Scale: " .. math.floor(uiScaleValue * 100) .. "%"
-	end)
-
-	button(page, "+", UDim2.fromOffset(92, 61), UDim2.fromOffset(75, 30), function()
-		uiScaleValue = math.min(1.2, uiScaleValue + 0.05)
-		uiScale.Scale = uiScaleValue
-		scaleLabel.Text = "UI Scale: " .. math.floor(uiScaleValue * 100) .. "%"
-	end)
-
-	transparencyLabel = label(
-		page, "Window Transparency: 0%",
-		UDim2.fromOffset(12, 103),
-		UDim2.new(1, -24, 0, 22), 11
-	)
-
-	button(page, "Less", UDim2.fromOffset(10, 130), UDim2.fromOffset(75, 30), function()
-		windowTransparency = math.max(0, windowTransparency - 0.05)
-		main.BackgroundTransparency = windowTransparency
-		transparencyLabel.Text = "Window Transparency: " .. math.floor(windowTransparency * 100) .. "%"
-	end)
-
-	button(page, "More", UDim2.fromOffset(92, 130), UDim2.fromOffset(75, 30), function()
-		windowTransparency = math.min(0.5, windowTransparency + 0.05)
-		main.BackgroundTransparency = windowTransparency
-		transparencyLabel.Text = "Window Transparency: " .. math.floor(windowTransparency * 100) .. "%"
-	end)
-
-	section(page, "Current shortcuts", 177)
-
-	label(
-		page, "Open Controls tab to edit keybinds.",
-		UDim2.fromOffset(12, 204),
-		UDim2.new(1, -24, 0, 22), 11, C.Muted
-	)
-
-	action(page, "Open Controls", 233, function()
-		switchTab("Controls")
-	end)
-end
-
--- CONTROLS MENU
-local menuKeyButton
-local flyKeyButton
-local noclipKeyButton
-local keybindStatus
-
-local function updateKeybindButtons()
-	if menuKeyButton then
-		menuKeyButton.Text = "Menu Toggle: " .. menuKey.Name
-	end
-
-	if flyKeyButton then
-		flyKeyButton.Text = "Fly: " .. flyKey.Name
-	end
-
-	if noclipKeyButton then
-		noclipKeyButton.Text = "Noclip: " .. noclipKey.Name
-	end
-end
-
-local function beginKeyCapture(actionName)
-	waitingForKey = actionName
-
-	if keybindStatus then
-		keybindStatus.Text = "Press a key for " .. actionName .. " (Esc cancels)"
-	end
-
-	notify("Keybinds", "Press a key for " .. actionName)
-end
-
-do
-	local page = pages.Controls
-
-	section(page, "Keyboard controls", 8)
-
-	label(
-		page,
-		"Click a button, then press the key you want.",
-		UDim2.fromOffset(12, 32),
-		UDim2.new(1, -24, 0, 30),
-		10,
-		C.Muted
-	)
-
-	menuKeyButton = action(page, "Menu Toggle: " .. menuKey.Name, 68, function()
-		beginKeyCapture("Menu Toggle")
-	end)
-
-	flyKeyButton = action(page, "Fly: " .. flyKey.Name, 108, function()
-		beginKeyCapture("Fly")
-	end)
-
-	noclipKeyButton = action(page, "Noclip: " .. noclipKey.Name, 148, function()
-		beginKeyCapture("Noclip")
-	end)
-
-	keybindStatus = label(
-		page,
-		"No keybind change in progress.",
-		UDim2.fromOffset(12, 192),
-		UDim2.new(1, -24, 0, 36),
-		10,
-		C.PurpleLight,
-		"accentLight"
-	)
-
-	section(page, "Fly movement", 239)
-
-	label(
-		page,
-		"W / A / S / D = Move\nSpace = Rise\nLeft Ctrl = Descend",
-		UDim2.fromOffset(12, 265),
-		UDim2.new(1, -24, 0, 75),
-		11,
-		C.Text
-	)
-
-	action(page, "Reset Keybinds", 350, function()
-		waitingForKey = nil
-		menuKey = Enum.KeyCode.LeftAlt
-		flyKey = Enum.KeyCode.F
-		noclipKey = Enum.KeyCode.N
-
-		updateKeybindButtons()
-		keybindStatus.Text = "Default keybinds restored."
-		notify("Keybinds", "Defaults restored.")
-	end)
-
-	updateKeybindButtons()
-end
-
--- APPLY WORLD CHANGES WHEN CHARACTERS RESPAWN
-local function updateWorld()
-	if chamsEnabled then applyHighlights() end
-	if tagsEnabled then applyTags() end
-end
-
+Players.PlayerAdded:Connect(function(target)
+    if target ~= player then hookOtherPlayer(target) end
+    task.defer(function()
+        if refreshPlayerList then refreshPlayerList() end
+        refreshPlayerVisuals()
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(target)
+    if selectedPlayer == target then
+        selectedPlayer = nil
+        if selectedPlayerLabel then selectedPlayerLabel.Text = "Selected player: none" end
+        if spectating then refreshCameraSubject() end
+    end
+    task.defer(function()
+        if refreshPlayerList then refreshPlayerList() end
+        refreshPlayerVisuals()
+    end)
+end)
+
+--========================================================
+-- RESPAWN HANDLING
+--========================================================
 player.CharacterAdded:Connect(function()
-	task.wait(1)
-
-	if flyEnabled then startFly() end
-	if noclipEnabled then setNoclip(true) end
-
-	updateWorld()
-
-	local hum = myHumanoid()
-	if hum and workspace.CurrentCamera then
-		workspace.CurrentCamera.CameraSubject = hum
-	end
+    task.wait(0.25)
+    applyMovement()
+    if flyEnabled then startFly() end
+    if noclipEnabled then setNoclip(true) end
+    if spectating then refreshCameraSubject() end
 end)
 
-Players.PlayerAdded:Connect(function()
-	task.wait(1)
-	updateWorld()
-	refreshPlayers()
-end)
-
-Players.PlayerRemoving:Connect(function()
-	task.wait(0.1)
-	updateWorld()
-	refreshPlayers()
-end)
-
--- KEYBOARD HANDLER
-UIS.InputBegan:Connect(function(input, gameProcessed)
-	if input.UserInputType ~= Enum.UserInputType.Keyboard then
-		return
-	end
-
-	-- Capture the next key chosen in Controls.
-	if waitingForKey then
-		local actionName = waitingForKey
-		waitingForKey = nil
-
-		if input.KeyCode == Enum.KeyCode.Escape then
-			if keybindStatus then
-				keybindStatus.Text = "Keybind change cancelled."
-			end
-			return
-		end
-
-		if input.KeyCode == Enum.KeyCode.Unknown then
-			return
-		end
-
-		if actionName == "Menu Toggle" then
-			menuKey = input.KeyCode
-		elseif actionName == "Fly" then
-			flyKey = input.KeyCode
-		elseif actionName == "Noclip" then
-			noclipKey = input.KeyCode
-		end
-
-		updateKeybindButtons()
-
-		if keybindStatus then
-			keybindStatus.Text = actionName .. " set to " .. input.KeyCode.Name
-		end
-
-		notify("Keybind updated", actionName .. ": " .. input.KeyCode.Name)
-		return
-	end
-
-	if gameProcessed then return end
-
-	if input.KeyCode == menuKey then
-		main.Visible = not main.Visible
-		return
-	end
-
-	if input.KeyCode == flyKey then
-		toggleFly()
-	elseif input.KeyCode == noclipKey then
-		setNoclip(not noclipEnabled)
-	end
-end)
-
--- INITIAL THEME AND PAGE
+--========================================================
+-- INITIALIZE
+--========================================================
 switchTab("Dashboard")
-refreshTheme()
-
-notify("NEXU MENU", "Loaded successfully.")
-notify("Controls", "Open Controls to view or change keybinds.")
+applyMovement()
+refreshKeybindLabels()
+applyAccent(accentIndex, true)
+refreshPlayerVisuals()
+notify("NEXU MENU", "Loaded. Configure shortcuts in Keybinds; find players in Spectator.")
+notify("Movement", "Walk 200, run 250, jump 250 and fly 300 are available in the sliders.")
